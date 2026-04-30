@@ -217,33 +217,44 @@ class OfxService:
         
         ano, mes = map(int, mes_ano.split('-'))
         
-        # 1. Puxa o saldo do passado (Tudo que aconteceu ANTES do dia 1º deste mês)
+        # 1. Puxa o saldo do passado
         data_inicio_mes = pd.Timestamp(year=ano, month=mes, day=1)
         df_anterior = self.df[self.df['data'] < data_inicio_mes]
         saldo_inicial = float(df_anterior['valor'].sum()) if not df_anterior.empty else 0.0
         
-        # 2. Pega as transações que aconteceram DENTRO do mês atual
         df_mes = self.df[self.df['mes_ano'] == mes_ano]
         
-        # 3. Agrupa o Movimento Líquido (Ganhos - Gastos) por dia
         agrupado_liquido = {}
+        transacoes_por_dia = {} # NOVO: Dicionário para guardar as transações
+        
         if not df_mes.empty:
             agrupado_liquido = df_mes.groupby(df_mes['data'].dt.day)['valor'].sum().to_dict()
+            
+            # NOVO: Montar a lista de transações dia a dia usando o Cérebro de Limpeza
+            for index, row in df_mes.iterrows():
+                dia = row['data'].day
+                if dia not in transacoes_por_dia:
+                    transacoes_por_dia[dia] = []
+                
+                dados_limpos = self.cleaner.limpar_transacao(row['descricao'])
+                transacoes_por_dia[dia].append({
+                    "descricao": dados_limpos["name"], # Alterado de "name" para "descricao"
+                    "valor": float(row['valor'])       # Alterado de "value" para "valor"
+                })
          
-        # 4. Constrói o histórico cumulativo do dia 1 ao 30/31
         ultimo_dia = calendar.monthrange(ano, mes)[1]
         resultado = []
         saldo_atual = saldo_inicial
         
         for dia in range(1, ultimo_dia + 1):
-            # Adiciona o movimento do dia (se houver) ao saldo acumulado
             movimento_dia = float(agrupado_liquido.get(dia, 0.0))
             saldo_atual += movimento_dia
             
             resultado.append({
                 "dia": dia,
-                "valor": saldo_atual, # O gráfico agora lerá o Saldo Total da Conta!
-                "movimento": movimento_dia
+                "valor": saldo_atual, 
+                "movimento": movimento_dia,
+                "transacoes": transacoes_por_dia.get(dia, []) # NOVO: Envia a lista!
             })
             
         return resultado

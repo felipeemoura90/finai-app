@@ -1,89 +1,67 @@
-# IMPORTAÇÃO DO NOVO SERVIÇO DE IA
 import os
-import sqlite3
 import re
+from supabase import create_client, Client
 from services.ai_service import AIService
 
 class ClearingService:
     def __init__(self):
-        self.db_path = "data/regras.db"
-        self._inicializar_banco()
-        self.dicionario = self._carregar_regras()
-        self.ai = AIService()  # Inicializar serviço de IA
-
-    def _inicializar_banco(self):
-        os.makedirs("data", exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        # Captura as credenciais que já existem no seu arquivo .env
+        url: str = os.getenv("SUPABASE_URL")
+        key: str = os.getenv("SUPABASE_ANON_KEY")
         
-        # Cria a tabela de regras se não existir
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS regras (
-                keyword TEXT PRIMARY KEY,
-                name TEXT,
-                categoria TEXT,
-                icon TEXT
-            )
-        ''')
-        
-        # Verifica se o banco está vazio. Se sim, popula com as regras iniciais.
-        cursor.execute("SELECT COUNT(*) FROM regras")
-        if cursor.fetchone()[0] == 0:
-            regras_iniciais = [
-                ("CONDOR", "Supermercado Condor", "Mercado", "shopping_cart"),
-                ("ANGELONI", "Angeloni", "Mercado", "shopping_cart"),
-                ("KOCH", "Komprão Koch", "Mercado", "shopping_cart"),
-                ("GIASSI", "Giassi Supermercados", "Mercado", "shopping_cart"),
-                ("FUTEBOL E LANCHONETE", "Lanchonete (Futebol)", "Alimentação", "restaurant"),
-                ("CELESC", "Energia Elétrica (Celesc)", "Contas Fixas", "bolt"),
-                ("CLARO", "Internet/Celular (Claro)", "Contas Fixas", "wifi"),
-                ("SOCIESC", "Faculdade (UniSociesc)", "Educação", "school"),
-                ("HAPVIDA", "Plano de Saúde (Hapvida)", "Saúde", "medical_services"),
-                ("FARMACIA", "Farmácia", "Saúde", "local_pharmacy"),
-                ("POSTO", "Posto de Combustível", "Transporte", "local_gas_station")
-            ]
-            cursor.executemany("INSERT INTO regras VALUES (?, ?, ?, ?)", regras_iniciais)
-            conn.commit()
+        if not url or not key:
+            print("[AVISO] Credenciais do Supabase ausentes. O serviço de limpeza pode falhar.")
             
-        conn.close()
+        # Inicializa a conexão direta com o banco de dados do Supabase
+        self.supabase: Client = create_client(url, key)
+        self.ai = AIService()
+        
+        # Carrega as regras logo ao iniciar o servidor
+        self.dicionario = self._carregar_regras()
 
     def _carregar_regras(self):
-        """Lê todas as regras do SQLite e coloca na memória para ser rápido."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT keyword, name, categoria, icon FROM regras")
-        
+        """Busca todas as regras no Supabase e coloca na memória RAM (Dicionário) para ser rápido."""
         dicionario = {}
-        for row in cursor.fetchall():
-            dicionario[row[0]] = {"nome": row[1], "categoria": row[2], "icon": row[3]}
+        try:
+            # Substitui o SELECT do SQLite pela chamada à API do Supabase
+            response = self.supabase.table('regras').select('*').execute()
             
-        conn.close()
+            for row in response.data:
+                dicionario[row['keyword']] = {
+                    "nome": row['name'], 
+                    "categoria": row['categoria'], 
+                    "icon": row['icon']
+                }
+            print(f"[OK] {len(dicionario)} regras carregadas do Supabase com sucesso.")
+        except Exception as e:
+            print(f"[ERRO] Falha ao carregar regras do Supabase: {e}")
+            
         return dicionario
 
     def salvar_regra(self, keyword: str, name: str, categoria: str, icon: str):
-        """Adiciona ou Atualiza uma regra no banco e recarrega a memória."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # UPSERT: Se a palavra-chave já existir, ele atualiza os dados!
-        cursor.execute('''
-            INSERT INTO regras (keyword, name, categoria, icon) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(keyword) DO UPDATE SET
-                name=excluded.name,
-                categoria=excluded.categoria,
-                icon=excluded.icon
-        ''', (keyword.upper(), name, categoria, icon))
-        
-        conn.commit()
-        conn.close()
-        
-        # Atualiza a memória instantaneamente
-        self.dicionario = self._carregar_regras()
+        """Adiciona ou Atualiza (UPSERT) uma regra no Supabase e recarrega a memória."""
+        try:
+            dados = {
+                "keyword": keyword.upper(),
+                "name": name,
+                "categoria": categoria,
+                "icon": icon
+            }
+            # O comando 'upsert' faz o mesmo papel do 'ON CONFLICT DO UPDATE' do SQLite
+            self.supabase.table('regras').upsert(dados).execute()
+            
+            print(f"[OK] Regra '{keyword.upper()}' salva/atualizada no Supabase.")
+            
+            # Atualiza a memória local para a regra já funcionar no próximo processamento
+            self.dicionario = self._carregar_regras()
+        except Exception as e:
+            print(f"[ERRO] Falha ao salvar regra no Supabase: {e}")
 
     def limpar_transacao(self, texto_bruto: str) -> dict:
+        """Aplica a regra de limpeza ou chama a IA se for desconhecido (Mantido intacto)"""
         texto_upper = str(texto_bruto).upper()
 
+        # 1. Tenta achar no dicionário carregado do banco
         for chave, dados_limpos in self.dicionario.items():
             if chave in texto_upper:
                 return {
@@ -93,19 +71,19 @@ class ClearingService:
                     "trust": "high"
                 }
 
-        # Se não encontrou no banco, usar IA para categorizar
+        # 2. Se não encontrou, pede ajuda para a IA do Gemini
         print(f"🤖 Usando IA para categorizar: {texto_bruto}")
         ai_result = self.ai.categorizar_transacao(texto_bruto)
 
-        # Salvar automaticamente a nova regra no banco
-        keyword = texto_upper[:20]  # Usar os primeiros 20 chars como chave
+        # 3. Salva a decisão da IA automaticamente no Supabase
+        keyword = texto_upper[:20] 
         self.salvar_regra(keyword, ai_result["name"], ai_result["categoria"], ai_result["icon"])
 
         return {
             "name": ai_result["name"],
             "categoria": ai_result["categoria"],
             "icon": ai_result["icon"],
-            "trust": "ai"  # Nova confiança: categorizada por IA
+            "trust": "ai" 
         }
 
     def _limpar_nome_desconhecido(self, texto: str) -> str:

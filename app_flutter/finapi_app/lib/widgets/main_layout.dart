@@ -1,14 +1,15 @@
 import 'package:file_selector/file_selector.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../core/theme/app_colors.dart';
+import '../core/app_config.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/feed_screen.dart';
 import '../screens/calendar_screen.dart';
 import '../screens/settings_screen.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart'; // <-- NOVO: Importando nosso Service
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -18,9 +19,10 @@ class MainLayout extends StatefulWidget {
 }
 
 class _MainLayoutState extends State<MainLayout> {
+  final ApiService _apiService = ApiService(); // <-- NOVO: Instância do Service
   int _activeTab = 0;
   DateTime _mesAtual = DateTime.now();
-  double _metaAtual = 3000.0; // <-- NOVO: Variável global da meta
+  double _metaAtual = 3000.0;
 
   String get _mesFormatadoAPI => DateFormat('yyyy-MM').format(_mesAtual);
   String get _mesFormatadoDisplay =>
@@ -32,7 +34,6 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  // NOVO: Função para abrir a caixinha de alterar a meta
   void _abrirDialogoMeta(BuildContext context) {
     TextEditingController controller = TextEditingController(
       text: _metaAtual.toStringAsFixed(2),
@@ -55,7 +56,7 @@ class _MainLayoutState extends State<MainLayout> {
             filled: true,
             fillColor: AppColors.slate800,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: AppColors.emeraldColor),
             ),
           ),
@@ -71,7 +72,6 @@ class _MainLayoutState extends State<MainLayout> {
           TextButton(
             onPressed: () {
               setState(() {
-                // Converte o texto para número (trocando vírgula por ponto se precisar)
                 _metaAtual =
                     double.tryParse(controller.text.replaceAll(',', '.')) ??
                     _metaAtual;
@@ -88,22 +88,12 @@ class _MainLayoutState extends State<MainLayout> {
     );
   }
 
-  // Atualizamos as telas para receber a meta!
+  // CORREÇÃO: Removidas as chaves dinâmicas que destruíam o estado da tela!
+  // Agora o Flutter vai reusar os widgets e chamar o didUpdateWidget lindamente.
   List<Widget> get _screens => [
-    Tela1Dashboard(
-      key: ValueKey('dash-$_mesFormatadoAPI-$_metaAtual'),
-      mesReferencia: _mesFormatadoAPI,
-      metaMensal: _metaAtual,
-    ),
-    Tela2Feed(
-      key: ValueKey('feed-$_mesFormatadoAPI'),
-      mesReferencia: _mesFormatadoAPI,
-    ),
-    // ATUALIZE A TELA 3 AQUI:
-    Tela3Calendar(
-      key: ValueKey('fluxo-$_mesFormatadoAPI'),
-      mesReferencia: _mesFormatadoAPI,
-    ),
+    Tela1Dashboard(mesReferencia: _mesFormatadoAPI, metaMensal: _metaAtual),
+    Tela2Feed(mesReferencia: _mesFormatadoAPI),
+    Tela3Calendar(mesReferencia: _mesFormatadoAPI),
     const Tela4Settings(),
   ];
 
@@ -123,7 +113,7 @@ class _MainLayoutState extends State<MainLayout> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
+            child: const Text(
               'Cancelar',
               style: TextStyle(color: AppColors.textSecondary),
             ),
@@ -144,23 +134,19 @@ class _MainLayoutState extends State<MainLayout> {
 
   Future<void> _importarArquivo() async {
     try {
-      // 1. Configura quais arquivos podem ser selecionados
       const XTypeGroup typeGroup = XTypeGroup(
         label: 'Arquivos Financeiros',
         extensions: <String>['ofx', 'csv', 'xlsx'],
       );
 
-      // 2. Abre a janela do sistema
       final XFile? file = await openFile(
         acceptedTypeGroups: <XTypeGroup>[typeGroup],
       );
 
       if (file != null) {
-        // Pega os dados do arquivo selecionado
         final fileBytes = await file.readAsBytes();
         final fileName = file.name;
 
-        // 3. Mostra o aviso visual
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -169,30 +155,26 @@ class _MainLayoutState extends State<MainLayout> {
             ),
           );
         }
-
-        // 4. Monta o pacote de envio
-        var request = http.MultipartRequest(
-          'POST',
-          Uri.parse('http://127.0.0.1:8000/api/upload'),
+        final session = Supabase.instance.client.auth.currentSession;
+        final token = session?.accessToken ?? '';
+        // CORREÇÃO: Usando o ApiService em vez de fazer a requisição HTTP crua aqui
+        final success = await _apiService.uploadFile(
+          fileBytes,
+          fileName,
+          token,
         );
 
-        request.files.add(
-          http.MultipartFile.fromBytes('file', fileBytes, filename: fileName),
-        );
-
-        // 5. Dispara para o Python
-        var response = await request.send();
-
-        if (response.statusCode == 200 && mounted) {
+        if (success && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Arquivo processado com sucesso!'),
               backgroundColor: AppColors.emeraldColor,
             ),
           );
-          setState(() {}); // Atualiza a tela
+          // Atualiza as telas após o upload
+          setState(() {});
         } else {
-          throw Exception('Erro no servidor Python');
+          throw Exception('Erro no servidor Python ao processar o arquivo.');
         }
       }
     } catch (e) {
@@ -212,17 +194,7 @@ class _MainLayoutState extends State<MainLayout> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= 800;
-
-        final mainArea = Column(
-          children: [
-            if (isDesktop) _buildHeader(),
-            Expanded(
-              // Essa linha com 'Key' é a mágica que força a tela a piscar e buscar dados novos
-              key: ValueKey('$_activeTab-$_mesFormatadoAPI'),
-              child: _screens[_activeTab],
-            ),
-          ],
-        );
+        final authProvider = context.read<AuthProvider>();
 
         if (isDesktop) {
           return Scaffold(
@@ -231,9 +203,36 @@ class _MainLayoutState extends State<MainLayout> {
                 Container(
                   width: 260,
                   color: AppColors.bgSidebar,
-                  child: _buildSidebarContent(),
+                  child: _AppSidebar(
+                    activeTab: _activeTab,
+                    onTabSelected: (index) =>
+                        setState(() => _activeTab = index),
+                    onImport: _importarArquivo,
+                    onLogout: () => _handleLogout(context, authProvider),
+                  ),
                 ),
-                Expanded(child: mainArea),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _DesktopHeader(
+                        monthLabel: _mesFormatadoDisplay,
+                        metaValue: _metaAtual,
+                        onPrevious: () => _mudarMes(-1),
+                        onNext: () => _mudarMes(1),
+                        onEditMeta: () => _abrirDialogoMeta(context),
+                      ),
+                      // CORREÇÃO: A chave dinâmica aqui também foi removida.
+                      // O IndexedStack é melhor pois mantém TODAS as telas vivas,
+                      // mudando apenas qual está visível. Melhora muito a performance de navegação!
+                      Expanded(
+                        child: IndexedStack(
+                          index: _activeTab,
+                          children: _screens,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           );
@@ -243,7 +242,12 @@ class _MainLayoutState extends State<MainLayout> {
           appBar: AppBar(
             backgroundColor: AppColors.bgSidebar,
             elevation: 0,
+            centerTitle: true,
             iconTheme: const IconThemeData(color: AppColors.textPrimary),
+            leading: _MobileProfileMenu(
+              onImport: _importarArquivo,
+              onLogout: () => _handleLogout(context, authProvider),
+            ),
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: const [
@@ -271,99 +275,119 @@ class _MainLayoutState extends State<MainLayout> {
                 ),
                 onPressed: () {},
               ),
-              Consumer<AuthProvider>(
-                builder: (context, authProvider, child) {
-                  return PopupMenuButton<String>(
-                    onSelected: (value) {
-                      if (value == 'logout') {
-                        _handleLogout(context, authProvider);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem<String>(
-                        value: 'profile',
-                        child: Row(
-                          children: [
-                            Icon(Icons.person, color: AppColors.primary),
-                            const SizedBox(width: 8),
-                            Text(
-                              authProvider.user?.email ?? 'Usuário',
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem<String>(
-                        value: 'logout',
-                        child: Row(
-                          children: [
-                            Icon(Icons.logout, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Sair', style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
-                      ),
-                    ],
-                    child: CircleAvatar(
-                      backgroundColor: AppColors.primary.withOpacity(0.2),
-                      child: Text(
-                        authProvider.user?.email
-                                ?.substring(0, 1)
-                                .toUpperCase() ??
-                            'U',
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  );
-                },
+            ],
+          ),
+          body: Column(
+            children: [
+              _MobileToolbar(
+                monthLabel: _mesFormatadoDisplay,
+                metaValue: _metaAtual,
+                onPrevious: () => _mudarMes(-1),
+                onNext: () => _mudarMes(1),
+                onEditMeta: () => _abrirDialogoMeta(context),
+              ),
+              Expanded(
+                child: IndexedStack(index: _activeTab, children: _screens),
               ),
             ],
           ),
-          drawer: Drawer(
+          bottomNavigationBar: BottomNavigationBar(
             backgroundColor: AppColors.bgSidebar,
-            child: SafeArea(child: _buildSidebarContent()),
+            selectedItemColor: AppColors.emeraldColor,
+            unselectedItemColor: AppColors.textMuted,
+            currentIndex: _activeTab,
+            type: BottomNavigationBarType.fixed,
+            onTap: (index) => setState(() => _activeTab = index),
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.dashboard_rounded),
+                label: 'Dashboard',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.bolt_rounded),
+                label: 'Feed',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.calendar_month_rounded),
+                label: 'Fluxo',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.settings_rounded),
+                label: 'Metas',
+              ),
+            ],
           ),
-          body: mainArea,
         );
       },
     );
   }
+}
 
-  // --- MÉTODOS DA BARRA LATERAL QUE HAVIAM SUMIDO ---
+// ============================================================================
+// WIDGETS AUXILIARES ABAIXO (Nenhuma alteração lógica necessária aqui)
+// ============================================================================
 
-  Widget _buildSidebarContent() {
+class _AppSidebar extends StatelessWidget {
+  final int activeTab;
+  final ValueChanged<int> onTabSelected;
+  final VoidCallback onImport;
+  final VoidCallback onLogout;
+
+  const _AppSidebar({
+    required this.activeTab,
+    required this.onTabSelected,
+    required this.onImport,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
-        if (MediaQuery.of(context).size.width >= 800) _buildLogo(),
+        if (MediaQuery.of(context).size.width >= 800) const _SidebarLogo(),
         const SizedBox(height: 24),
         Expanded(
           child: SingleChildScrollView(
             child: Column(
               children: [
-                _buildNavItem(Icons.dashboard_rounded, 'Dashboard', 0),
-                _buildNavItem(Icons.bolt_rounded, 'Feed de Automação', 1),
-                _buildNavItem(
-                  Icons.calendar_month_rounded,
-                  'Fluxo de Caixa',
-                  2,
+                _NavItem(
+                  icon: Icons.dashboard_rounded,
+                  label: 'Dashboard',
+                  isActive: activeTab == 0,
+                  onTap: () => onTabSelected(0),
                 ),
-                _buildNavItem(Icons.settings_rounded, 'Metas e Lógica', 3),
+                _NavItem(
+                  icon: Icons.bolt_rounded,
+                  label: 'Feed de Automação',
+                  isActive: activeTab == 1,
+                  onTap: () => onTabSelected(1),
+                ),
+                _NavItem(
+                  icon: Icons.calendar_month_rounded,
+                  label: 'Fluxo de Caixa',
+                  isActive: activeTab == 2,
+                  onTap: () => onTabSelected(2),
+                ),
+                _NavItem(
+                  icon: Icons.settings_rounded,
+                  label: 'Metas e Lógica',
+                  isActive: activeTab == 3,
+                  onTap: () => onTabSelected(3),
+                ),
               ],
             ),
           ),
         ),
-        _buildUserProfile(),
+        _UserProfileMenu(onImport: onImport, onLogout: onLogout),
       ],
     );
   }
+}
 
-  Widget _buildLogo() {
+class _SidebarLogo extends StatelessWidget {
+  const _SidebarLogo();
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Row(
@@ -372,7 +396,7 @@ class _MainLayoutState extends State<MainLayout> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: AppColors.emeraldColor.withValues(alpha: 0.2),
+              color: AppColors.emeraldColor.withOpacity(0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
@@ -402,17 +426,27 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     );
   }
+}
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isActive = _activeTab == index;
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: InkWell(
-        onTap: () {
-          setState(() {
-            _activeTab = index;
-          });
-        },
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -443,27 +477,31 @@ class _MainLayoutState extends State<MainLayout> {
       ),
     );
   }
+}
 
-  Widget _buildUserProfile() {
+class _UserProfileMenu extends StatelessWidget {
+  final VoidCallback onImport;
+  final VoidCallback onLogout;
+
+  const _UserProfileMenu({required this.onImport, required this.onLogout});
+
+  @override
+  Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.user;
-
     final String nome = user?.userMetadata?['full_name'] ?? 'Usuário';
     final String email = user?.email ?? 'email@indisponivel.com';
     final String? fotoUrl = user?.userMetadata?['avatar_url'];
 
-    // 1. Envolvemos tudo em um PopupMenuButton para criar o menu clicável
     return PopupMenuButton<String>(
-      // Offset negativo para o menu abrir "para cima", já que o botão fica no fim da tela
       offset: const Offset(0, -120),
       color: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onSelected: (value) {
-        if (value == 'importar_ofx') {
-          _importarArquivo(); // <--- CHAMA A FUNÇÃO AQUI
-        } else if (value == 'sair') {
-          _handleLogout(context, authProvider);
-        }
+        if (value == 'importar_ofx')
+          onImport();
+        else if (value == 'sair')
+          onLogout();
       },
       itemBuilder: (context) => [
         const PopupMenuItem<String>(
@@ -491,7 +529,6 @@ class _MainLayoutState extends State<MainLayout> {
           ),
         ),
       ],
-      // O child é o desenho da barra lateral que será clicável
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
@@ -499,16 +536,10 @@ class _MainLayoutState extends State<MainLayout> {
         ),
         child: Row(
           children: [
-            // 2. Avatar blindado contra erros de carregamento (CORS)
             CircleAvatar(
               backgroundColor: AppColors.primary.withOpacity(0.2),
               backgroundImage: fotoUrl != null ? NetworkImage(fotoUrl) : null,
-              onBackgroundImageError: fotoUrl != null
-                  ? (exception, stackTrace) {
-                      // Silencia o erro se a imagem for bloqueada pelo navegador
-                    }
-                  : null,
-              // Fallback: Mostra a primeira letra do nome se a foto falhar ou não existir
+              onBackgroundImageError: fotoUrl != null ? (e, s) {} : null,
               child: fotoUrl == null
                   ? Text(
                       nome.isNotEmpty ? nome[0].toUpperCase() : 'U',
@@ -544,17 +575,133 @@ class _MainLayoutState extends State<MainLayout> {
                 ],
               ),
             ),
-            // 3. Um pequeno ícone de opções para o usuário entender que é clicável
             const Icon(Icons.more_vert, color: AppColors.textMuted, size: 20),
           ],
         ),
       ),
     );
   }
+}
 
-  // --- CABEÇALHO COM CONTROLE DE MÊS ---
+class _MobileProfileMenu extends StatelessWidget {
+  final VoidCallback onImport;
+  final VoidCallback onLogout;
 
-  Widget _buildHeader() {
+  const _MobileProfileMenu({required this.onImport, required this.onLogout});
+
+  @override
+  Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
+    final user = authProvider.user;
+    final String nome = user?.userMetadata?['full_name'] ?? 'Usuário';
+    final String email = user?.email ?? '';
+    final String? fotoUrl = user?.userMetadata?['avatar_url'];
+
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 48),
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) {
+        if (value == 'importar_ofx')
+          onImport();
+        else if (value == 'sair')
+          onLogout();
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem<String>(
+          value: 'importar_ofx',
+          child: Row(
+            children: [
+              Icon(Icons.upload_file, color: AppColors.emeraldColor),
+              SizedBox(width: 8),
+              Text(
+                'Importar Extrato',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'sair',
+          child: Row(
+            children: [
+              Icon(Icons.logout, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Sair', style: TextStyle(color: Colors.red)),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          enabled: false,
+          height: 40,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                nome,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (email.isNotEmpty)
+                Text(
+                  email,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: CircleAvatar(
+          radius: 14,
+          backgroundColor: AppColors.primary.withOpacity(0.2),
+          backgroundImage: fotoUrl != null ? NetworkImage(fotoUrl) : null,
+          onBackgroundImageError: fotoUrl != null ? (e, s) {} : null,
+          child: fotoUrl == null
+              ? Text(
+                  nome.isNotEmpty ? nome[0].toUpperCase() : 'U',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopHeader extends StatelessWidget {
+  final String monthLabel;
+  final double metaValue;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onEditMeta;
+
+  const _DesktopHeader({
+    required this.monthLabel,
+    required this.metaValue,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onEditMeta,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       height: 80,
       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -571,11 +718,11 @@ class _MainLayoutState extends State<MainLayout> {
                   Icons.chevron_left,
                   color: AppColors.textMuted,
                 ),
-                onPressed: () => _mudarMes(-1),
+                onPressed: onPrevious,
               ),
               const SizedBox(width: 8),
               Text(
-                _mesFormatadoDisplay.toUpperCase(),
+                monthLabel.toUpperCase(),
                 style: const TextStyle(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.bold,
@@ -588,13 +735,11 @@ class _MainLayoutState extends State<MainLayout> {
                   Icons.chevron_right,
                   color: AppColors.textMuted,
                 ),
-                onPressed: () => _mudarMes(1),
+                onPressed: onNext,
               ),
-
-              const SizedBox(width: 24), // Espaço separador
-              // NOVO: Botão interativo da Meta
+              const SizedBox(width: 24),
               InkWell(
-                onTap: () => _abrirDialogoMeta(context),
+                onTap: onEditMeta,
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -602,10 +747,10 @@ class _MainLayoutState extends State<MainLayout> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.emeraldColor.withValues(alpha: 0.1),
+                    color: AppColors.emeraldColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: AppColors.emeraldColor.withValues(alpha: 0.3),
+                      color: AppColors.emeraldColor.withOpacity(0.3),
                     ),
                   ),
                   child: Row(
@@ -617,7 +762,7 @@ class _MainLayoutState extends State<MainLayout> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'Meta: R\$ ${_metaAtual.toStringAsFixed(2)}',
+                        'Meta: R\$ ${metaValue.toStringAsFixed(2)}',
                         style: const TextStyle(
                           color: AppColors.emeraldColor,
                           fontWeight: FontWeight.bold,
@@ -655,10 +800,106 @@ class _MainLayoutState extends State<MainLayout> {
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(30),
                     borderSide: BorderSide(
-                      color: AppColors.emeraldColor.withValues(alpha: 0.5),
+                      color: AppColors.emeraldColor.withOpacity(0.5),
                     ),
                   ),
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileToolbar extends StatelessWidget {
+  final String monthLabel;
+  final double metaValue;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onEditMeta;
+
+  const _MobileToolbar({
+    required this.monthLabel,
+    required this.metaValue,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onEditMeta,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: const BoxDecoration(
+        color: AppColors.bgSidebar,
+        border: Border(bottom: BorderSide(color: AppColors.slate800)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(
+                  Icons.chevron_left,
+                  color: AppColors.textMuted,
+                ),
+                onPressed: onPrevious,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                monthLabel.toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textMuted,
+                ),
+                onPressed: onNext,
+              ),
+            ],
+          ),
+          InkWell(
+            onTap: onEditMeta,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.emeraldColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppColors.emeraldColor.withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.track_changes,
+                    color: AppColors.emeraldColor,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Meta: R\$ ${metaValue.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      color: AppColors.emeraldColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

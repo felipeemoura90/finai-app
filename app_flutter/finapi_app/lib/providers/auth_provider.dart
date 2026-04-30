@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
+import 'dart:async'; // <-- NOVO: Necessário para o StreamSubscription
+import '../core/app_config.dart';
 
 class AuthProvider with ChangeNotifier {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -10,6 +12,9 @@ class AuthProvider with ChangeNotifier {
   User? _user;
   bool _isLoading = true;
   String? _errorMessage;
+
+  // <-- NOVO: Variável para guardar a escuta de eventos do Supabase
+  StreamSubscription<AuthState>? _authSubscription;
 
   User? get user => _user;
   bool get isLoading => _isLoading;
@@ -25,7 +30,6 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Tenta recuperar sessão salva
       // Tenta recuperar sessão salva
       final sessionString = await _storage.read(key: 'session');
       if (sessionString != null) {
@@ -44,12 +48,13 @@ class AuthProvider with ChangeNotifier {
         }
       }
 
-      // Escuta mudanças de estado de auth
-      _supabase.auth.onAuthStateChange.listen((event) {
+      // Escuta mudanças de estado de auth e guarda na variável _authSubscription
+      _authSubscription = _supabase.auth.onAuthStateChange.listen((event) {
         _user = event.session?.user;
         _saveSession(event.session);
         notifyListeners();
       });
+      await Future.delayed(const Duration(milliseconds: 3500));
     } catch (e) {
       _errorMessage = 'Erro ao inicializar autenticação: $e';
     } finally {
@@ -60,25 +65,20 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _saveSession(Session? session) async {
     if (session != null) {
-      await _storage.write(
-        key: 'session',
-        value: jsonEncode(session.toJson()), // Correção aplicada!
-      );
+      await _storage.write(key: 'session', value: jsonEncode(session.toJson()));
     } else {
       await _storage.delete(key: 'session');
     }
   }
 
-  // Tiramos qualquer coisa de dentro dos parênteses e renomeamos
   Future<void> signInWithGoogle() async {
     try {
       await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: 'http://localhost:3000',
+        redirectTo: authCallbackUrl,
         scopes: 'email profile',
       );
     } catch (e) {
-      // Se quiser tratar algum erro interno aqui, pode deixar.
       rethrow;
     }
   }
@@ -114,5 +114,12 @@ class AuthProvider with ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  // <-- NOVO: Sobrescrevemos o dispose para limpar o listener e evitar Memory Leak
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 }

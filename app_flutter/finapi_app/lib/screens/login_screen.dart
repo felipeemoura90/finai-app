@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/app_config.dart';
 import '../providers/auth_provider.dart';
-import '../core/theme/app_colors.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -25,17 +25,14 @@ class LoginScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo/Ícone
                   const Icon(
                     Icons.account_balance_wallet,
                     size: 80,
                     color: AppColors.primary,
                   ),
                   const SizedBox(height: 24),
-
-                  // Título
                   const Text(
-                    'FinAPI',
+                    'FinAI',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -44,9 +41,7 @@ class LoginScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
-
-                  // Subtítulo
-                  Text(
+                  const Text(
                     'Gerencie suas finanças com inteligência artificial',
                     style: TextStyle(
                       fontSize: 16,
@@ -55,9 +50,6 @@ class LoginScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 48),
-
-                  // Botão de Login com Google
-                  // Envolva o seu ElevatedButton com o Center:
                   Center(
                     child: ElevatedButton(
                       onPressed: () =>
@@ -65,39 +57,39 @@ class LoginScreen extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
                         foregroundColor: Colors.black87,
-                        // Se quiser deixar ainda mais ajustado, pode diminuir o horizontal de 32 para 24
                         padding: const EdgeInsets.symmetric(
                           vertical: 16,
-                          horizontal: 24,
+                          horizontal: 16,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 2,
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min, // Mantemos isso aqui!
-                        children: [
-                          Image.asset(
-                            'assets/google_logo.png',
-                            height: 32,
-                            width: 32,
-                          ),
-                          const SizedBox(width: 16),
-                          const Text(
-                            'Continuar com Google',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Image.asset(
+                              'assets/google_logo.png',
+                              height: 28,
+                              width: 28,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Continuar com Google',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ), // Fim do ElevatedButton
+                  ),
                   const SizedBox(height: 24),
-
-                  // Mensagem de erro
                   if (authProvider.errorMessage != null)
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -115,11 +107,8 @@ class LoginScreen extends StatelessWidget {
                         textAlign: TextAlign.center,
                       ),
                     ),
-
                   const SizedBox(height: 24),
-
-                  // Termos e privacidade
-                  Text(
+                  const Text(
                     'Ao continuar, você concorda com nossos Termos de Uso e Política de Privacidade.',
                     style: TextStyle(
                       fontSize: 12,
@@ -141,14 +130,10 @@ class LoginScreen extends StatelessWidget {
     AuthProvider authProvider,
   ) async {
     try {
-      // Chamada limpa, sem precisar passar argumentos!
       await authProvider.signInWithGoogle();
-
-      // A nossa famosa linha de segurança
       if (!context.mounted) return;
     } catch (error) {
       if (!context.mounted) return;
-
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Erro ao fazer login')));

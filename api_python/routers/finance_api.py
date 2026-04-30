@@ -1,9 +1,8 @@
-from fastapi import APIRouter
-from services.ofx_service import OfxService
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends
 from pydantic import BaseModel
-from fastapi import APIRouter, UploadFile, File
-import shutil
-import os
+from services.ofx_service import OfxService
+from services.auth_middleware import get_current_user # Importe o verificador
 
 class NovaRegra(BaseModel):
     keyword: str
@@ -12,7 +11,11 @@ class NovaRegra(BaseModel):
     icon: str
 
 # Inicializa o Router (Agrupador de URLs)
-router = APIRouter(prefix="/api")
+router = APIRouter(
+    prefix="/api", 
+    tags=["finance"],
+    dependencies=[Depends(get_current_user)] # TRANCANDO AS ROTAS!
+)
 
 # Inicializa o serviço que lê o OFX
 ofx_engine = OfxService()
@@ -76,7 +79,7 @@ def get_fluxo_caixa(mes: str = "2026-04"):
     }
 @router.post("/regras")
 def salvar_nova_regra(regra: NovaRegra):
-    # Envia a nova regra para o nosso serviço SQLite
+    # Envia a nova regra para o Supabase
     ofx_engine.cleaner.salvar_regra(
         keyword=regra.keyword,
         name=regra.name,
@@ -85,17 +88,37 @@ def salvar_nova_regra(regra: NovaRegra):
     )
     return {"status": "success", "message": "Regra salva com sucesso!"}
 
-@router.post("/upload")
-async def upload_arquivo(file: UploadFile = File(...)):
-    # 1. Garante que a pasta data existe
-    os.makedirs("data", exist_ok=True)
-    
-    # 2. Salva o arquivo fisicamente na máquina
-    caminho_destino = f"data/{file.filename}"
-    with open(caminho_destino, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+# Função isolada que fará o trabalho pesado sem travar a API
+def processar_extrato_background(caminho_arquivo: str):
+    try:
+        ofx_engine.atualizar_arquivo(caminho_arquivo)
+        print(f"[BACKGROUND] Arquivo {caminho_arquivo} processado com sucesso!")
+    except Exception as e:
+        print(f"[BACKGROUND ERRO] Falha ao processar {caminho_arquivo}: {e}")
 
-    # 3. Manda o serviço ler esse arquivo novo!
-    ofx_engine.atualizar_arquivo(caminho_destino)
+@router.post("/upload")
+async def upload_arquivo(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user) # Trancando a rota!
+):
+    upload_dir = Path("data")
+    upload_dir.mkdir(parents=True, exist_ok=True)
     
-    return {"status": "success", "message": f"{file.filename} importado e processado!"}
+    destino = upload_dir / file.filename
+    try:
+        # Lemos e salvamos o arquivo fisicamente o mais rápido possível
+        conteudo = await file.read()
+        with destino.open("wb") as buffer:
+            buffer.write(conteudo)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao salvar o arquivo: {e}")
+
+    # Delegamos a leitura lenta do Pandas para rodar em segundo plano
+    background_tasks.add_task(processar_extrato_background, str(destino))
+    
+    # Liberamos o aplicativo do celular instantaneamente!
+    return {
+        "status": "success", 
+        "message": f"Arquivo recebido! O processamento das transações de {current_user.get('email')} está ocorrendo em segundo plano."
+    }

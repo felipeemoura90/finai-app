@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
-import 'core/theme/app_colors.dart';
+import 'core/app_config.dart';
 import 'widgets/main_layout.dart';
 import 'providers/auth_provider.dart';
-import 'widgets/auth_guard.dart';
-import 'core/config/supabase_config.dart';
+import 'screens/login_screen.dart';
+import 'widgets/splash_screen.dart';
 
 void main() async {
   // Inicializa Flutter
@@ -16,11 +16,16 @@ void main() async {
   await initializeDateFormatting('pt_BR', null);
 
   // Inicializa o Supabase
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+  await Supabase.initialize(
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
+    authOptions: FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce, // Recomendado para mobile
+    ),
+  );
 
   runApp(const FinAIApp());
 }
-// ... (o resto do main.dart continua igual) ...
 
 class FinAIApp extends StatelessWidget {
   const FinAIApp({super.key});
@@ -42,6 +47,29 @@ class FinAIApp extends StatelessWidget {
         ),
         home: const AuthGuard(child: MainLayout()),
       ),
+    );
+  }
+}
+
+class AuthGuard extends StatelessWidget {
+  final Widget child;
+  const AuthGuard({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, _) {
+        if (authProvider.isLoading) {
+          // Substituímos o Scaffold anterior por este:
+          return const FinAiSplashScreen(); // <-- CARREGAMENTO COM STORYTELLING
+        }
+
+        if (!authProvider.isAuthenticated) {
+          return const LoginScreen(); //[cite: 10]
+        }
+
+        return child; // Retorna o MainLayout[cite: 8]
+      },
     );
   }
 }

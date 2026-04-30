@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
 from services.auth_service import AuthService
@@ -71,8 +71,11 @@ def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return UserResponse(**current_user)
 
 @router.post("/logout")
-def logout(current_user: dict = Depends(get_current_user)):
-    """Faz logout do usuário"""
+def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Faz logout do usuário usando token de acesso"""
     # Como estamos usando stateless JWT, o logout é principalmente informativo
     # O cliente deve remover os tokens localmente
-    return {"message": "Logout realizado com sucesso"}
+    token = credentials.credentials
+    if auth_service.sign_out(token):
+        return {"message": "Logout realizado com sucesso"}
+    raise HTTPException(status_code=400, detail="Falha ao realizar logout")

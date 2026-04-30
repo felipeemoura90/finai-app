@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../core/theme/app_colors.dart';
+import '../core/app_config.dart';
+import '../services/api_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-// 1. Agora a tela é STATEFUL (tem vida/estado e aceita setState!)
 class Tela2Feed extends StatefulWidget {
   final String mesReferencia;
 
@@ -14,19 +13,31 @@ class Tela2Feed extends StatefulWidget {
 }
 
 class _Tela2FeedState extends State<Tela2Feed> {
-  Future<List<dynamic>> fetchFeed() async {
-    // Atenção: Use a rota correta do seu Python (transacoes, extrato, etc)
-    // Note que agora usamos widget.mesReferencia por ser Stateful
-    final url = Uri.parse(
-      'http://127.0.0.1:8000/api/feed?mes=${widget.mesReferencia}',
-    );
-    final response = await http.get(url);
+  final ApiService _apiService = ApiService();
+  late Future<List<dynamic>> _feedFuture;
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body)['data'] ?? [];
-    } else {
-      throw Exception('Falha ao carregar dados do Feed');
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void didUpdateWidget(covariant Tela2Feed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mesReferencia != widget.mesReferencia) {
+      _loadData();
     }
+  }
+
+  void _loadData() {
+    // Busca o token da sessão atual do Supabase
+    final session = Supabase.instance.client.auth.currentSession;
+    final token = session?.accessToken ?? '';
+
+    setState(() {
+      _feedFuture = _apiService.getFeed(widget.mesReferencia, token);
+    });
   }
 
   IconData _getIconData(String iconName) {
@@ -35,8 +46,6 @@ class _Tela2FeedState extends State<Tela2Feed> {
         return Icons.bolt;
       case 'restaurant':
         return Icons.restaurant;
-      case 'help_outline':
-        return Icons.help_outline;
       case 'shopping_cart':
         return Icons.shopping_cart;
       case 'local_cafe':
@@ -66,13 +75,129 @@ class _Tela2FeedState extends State<Tela2Feed> {
     }
   }
 
+  void _mostrarDialogoRegra(BuildContext context, Map<String, dynamic> item) {
+    final keywordCtrl = TextEditingController(text: item['raw']);
+    final nameCtrl = TextEditingController(text: item['name']);
+    var categoriaSelecionada = item['categoria'] ?? 'Outros';
+    var iconeSelecionado = item['icon'] ?? 'help_outline';
+
+    final categorias = [
+      'Mercado',
+      'Alimentação',
+      'Contas Fixas',
+      'Saúde',
+      'Transporte',
+      'Educação',
+      'Transferência',
+      'Serviços',
+      'Outros',
+    ];
+    final icones = [
+      'shopping_cart',
+      'restaurant',
+      'local_cafe',
+      'bolt',
+      'apartment',
+      'medical_services',
+      'local_pharmacy',
+      'payment',
+      'help_outline',
+    ];
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.bgCard,
+          title: const Text(
+            'Editar Transação',
+            style: TextStyle(color: AppColors.textPrimary),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: keywordCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Raw',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: categoriaSelecionada,
+                  decoration: const InputDecoration(
+                    labelText: 'Categoria',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                  ),
+                  items: categorias
+                      .map(
+                        (categoria) => DropdownMenuItem(
+                          value: categoria,
+                          child: Text(categoria),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) categoriaSelecionada = value;
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: iconeSelecionado,
+                  decoration: const InputDecoration(
+                    labelText: 'Ícone',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                  ),
+                  items: icones
+                      .map(
+                        (icone) =>
+                            DropdownMenuItem(value: icone, child: Text(icone)),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) iconeSelecionado = value;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: AppColors.textMuted),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'Salvar',
+                style: TextStyle(color: AppColors.emeraldColor),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSmallScreen = MediaQuery.of(context).size.width < 800;
 
     return FutureBuilder<List<dynamic>>(
-      future:
-          fetchFeed(), // Toda vez que chamarmos setState, ele busca de novo!
+      future: _feedFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -89,7 +214,6 @@ class _Tela2FeedState extends State<Tela2Feed> {
         }
 
         final dados = snapshot.data ?? [];
-
         if (dados.isEmpty) {
           return const Center(
             child: Text(
@@ -113,12 +237,10 @@ class _Tela2FeedState extends State<Tela2Feed> {
                 final String iconStr = item['icon'] ?? 'receipt';
                 final String trust = item['trust'] ?? 'low';
 
-                // 2. AQUI ESTÁ O BOTÃO (InkWell) ENVOLVENDO O CARTÃO!
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12.0),
                   child: InkWell(
-                    onTap: () =>
-                        _mostrarDialogoRegra(context, item), // Abre o editor!
+                    onTap: () => _mostrarDialogoRegra(context, item),
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
                       padding: const EdgeInsets.all(20),
@@ -179,12 +301,10 @@ class _Tela2FeedState extends State<Tela2Feed> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: trust == 'high'
-                                      ? AppColors.emeraldColor.withValues(
-                                          alpha: 0.1,
-                                        )
+                                      ? AppColors.emeraldColor.withOpacity(0.1)
                                       : trust == 'ai'
-                                      ? Colors.blue.withValues(alpha: 0.1)
-                                      : Colors.amber.withValues(alpha: 0.1),
+                                      ? Colors.blue.withOpacity(0.1)
+                                      : Colors.amber.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Row(
@@ -233,215 +353,6 @@ class _Tela2FeedState extends State<Tela2Feed> {
           ),
         );
       },
-    );
-  }
-
-  // --- O CÉREBRO DA EDIÇÃO ---
-  void _mostrarDialogoRegra(BuildContext context, Map<String, dynamic> item) {
-    TextEditingController keywordCtrl = TextEditingController(
-      text: item['raw'],
-    );
-    TextEditingController nameCtrl = TextEditingController(text: item['name']);
-    String catSelecionada = item['categoria'] ?? 'Outros';
-    String iconeSelecionado = item['icon'] ?? 'help_outline';
-
-    List<String> categorias = [
-      'Mercado',
-      'Alimentação',
-      'Contas Fixas',
-      'Saúde',
-      'Transporte',
-      'Educação',
-      'Transferência',
-      'Serviços',
-      'Outros',
-    ];
-    List<String> icones = [
-      'shopping_cart',
-      'restaurant',
-      'bolt',
-      'wifi',
-      'local_pharmacy',
-      'local_gas_station',
-      'school',
-      'compare_arrows',
-      'help_outline',
-      'payment',
-      'local_cafe',
-    ];
-
-    // Se a categoria do Python não estiver na lista padrão, usa 'Outros' para não dar erro
-    if (!categorias.contains(catSelecionada)) catSelecionada = 'Outros';
-    if (!icones.contains(iconeSelecionado)) iconeSelecionado = 'help_outline';
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              backgroundColor: AppColors.bgCard,
-              title: const Text(
-                'Ensinar Regra de Limpeza',
-                style: TextStyle(color: AppColors.textPrimary),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Palavra-chave no Extrato:',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: keywordCtrl,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: _inputDeco(),
-                    ),
-                    const SizedBox(height: 16),
-
-                    const Text(
-                      'Nome Limpo (Como deve aparecer):',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: nameCtrl,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: _inputDeco(),
-                    ),
-                    const SizedBox(height: 16),
-
-                    const Text(
-                      'Categoria:',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: catSelecionada,
-                      dropdownColor: AppColors.slate800,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: _inputDeco(),
-                      items: categorias
-                          .map(
-                            (c) => DropdownMenuItem(value: c, child: Text(c)),
-                          )
-                          .toList(),
-                      onChanged: (val) =>
-                          setStateDialog(() => catSelecionada = val!),
-                    ),
-                    const SizedBox(height: 16),
-
-                    const Text(
-                      'Ícone Visual:',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: iconeSelecionado,
-                      dropdownColor: AppColors.slate800,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: _inputDeco(),
-                      items: icones
-                          .map(
-                            (i) => DropdownMenuItem(
-                              value: i,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _getIconData(i),
-                                    color: AppColors.emeraldColor,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(i),
-                                ],
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (val) =>
-                          setStateDialog(() => iconeSelecionado = val!),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Cancelar',
-                    style: TextStyle(color: AppColors.textMuted),
-                  ),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.emeraldColor,
-                  ),
-                  onPressed: () async {
-                    Map<String, String> payload = {
-                      "keyword": keywordCtrl.text,
-                      "name": nameCtrl.text,
-                      "categoria": catSelecionada,
-                      "icon": iconeSelecionado,
-                    };
-
-                    await http.post(
-                      Uri.parse('http://127.0.0.1:8000/api/regras'),
-                      headers: {"Content-Type": "application/json"},
-                      body: jsonEncode(payload),
-                    );
-
-                    if (context.mounted) {
-                      Navigator.pop(context); // Fecha a janela
-                      setState(
-                        () {},
-                      ); // 3. AQUI A MÁGICA: A tela atualiza sozinha!
-                    }
-                  },
-                  child: const Text(
-                    'Salvar Regra',
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  InputDecoration _inputDeco() {
-    return InputDecoration(
-      filled: true,
-      fillColor: AppColors.slate800,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: AppColors.emeraldColor),
-      ),
     );
   }
 }

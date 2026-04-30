@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/theme/app_colors.dart';
+import '../core/app_config.dart';
 
 class Tela4Settings extends StatefulWidget {
   const Tela4Settings({super.key});
@@ -38,7 +38,6 @@ class _Tela4SettingsState extends State<Tela4Settings> {
                   style: TextStyle(color: AppColors.textMuted),
                 ),
                 const SizedBox(height: 32),
-
                 Container(
                   padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
                   decoration: BoxDecoration(
@@ -109,7 +108,6 @@ class _Tela4SettingsState extends State<Tela4Settings> {
                         ),
                       ),
                       const SizedBox(height: 32),
-
                       _buildSliderItem(
                         'Fixo (Contas & Moradia)',
                         0.5,
@@ -131,7 +129,7 @@ class _Tela4SettingsState extends State<Tela4Settings> {
                         0.2,
                         'R\$ 1.040',
                         '20%',
-                        AppColors.emeraldColor,
+                        AppColors.primary,
                       ),
                     ],
                   ),
@@ -160,7 +158,10 @@ class _Tela4SettingsState extends State<Tela4Settings> {
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

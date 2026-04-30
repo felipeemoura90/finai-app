@@ -1,45 +1,79 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
+  <!-- 
+    A tag base ajuda o navegador a entender onde os assets do Flutter estão.
+    Não altere a variável $FLUTTER_BASE_HREF, o próprio compilador do Flutter preenche isso.
   -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="FinAI - Gerencie suas finanças com inteligência artificial.">
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
+  <!-- Configurações para iOS (Apple Web App) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="finapi_app">
+  <meta name="apple-mobile-web-app-title" content="FinAI">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon -->
+  <!-- Favicon que aparece na aba do navegador -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>finapi_app</title>
+  <title>FinAI Dashboard</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- ESTILOS DA TELA DE CARREGAMENTO HTML -->
+  <style>
+    /* Removemos as margens e forçamos o fundo escuro imediatamente */
+    body {
+      background-color: #0A0F16;
+      margin: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden; /* Evita barras de rolagem desnecessárias */
+    }
+
+    /* Animação de rotação para o círculo */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Estilo do spinner com o seu verde esmeralda */
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #1E293B; /* Cor base (AppColors.slate800) */
+      border-top: 3px solid #10B981; /* Cor primária (AppColors.emeraldColor) */
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 24px;
+    }
+
+    /* Estilo do texto */
+    .loading-text {
+      color: #64748B; /* AppColors.textMuted */
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 2px;
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
+  <!-- ELEMENTOS VISUAIS QUE APARECEM ANTES DO FLUTTER CARREGAR -->
+  <div class="loading-spinner"></div>
+  <div class="loading-text">INICIANDO MOTOR FINAI...</div>
+
+  <!-- 
+    Script padrão de inicialização do Flutter Web.
+    Este script carrega o main.dart.js e assume o controle do HTML quando termina.
   -->
   <script src="flutter_bootstrap.js" async></script>
 </body>

@@ -1,21 +1,29 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import finance_api, auth_api # Importa as rotas criadas
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-# 1. Inicializa o "Servidor"
-app = FastAPI(title="FinAI API Engine")
+from config import settings
+from routers import finance_api, auth_api
 
-# 2. Configuração de Segurança (CORS)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
 )
 
-# 3. Conecta as rotas modulares
-app.include_router(finance_api.router)
-app.include_router(auth_api.router)
+app = FastAPI(title=settings.APP_TITLE, version=settings.APP_VERSION)
 
-# Fim! O uvicorn vai rodar este arquivo.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ORIGINS,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
+# Se for hospedar em produção, ajuste os hosts confiáveis.
+# app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
+
+app.include_router(auth_api.router)
+app.include_router(finance_api.router)
