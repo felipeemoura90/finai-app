@@ -6,15 +6,13 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from supabase_auth import SyncGoTrueClient
-from dotenv import load_dotenv
-
-load_dotenv()
+from config import settings
 
 class AuthService:
     def __init__(self):
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
-        self.jwt_secret = os.getenv('JWT_SECRET', secrets.token_hex(32))
+        self.supabase_url = settings.SUPABASE_URL
+        self.supabase_key = settings.SUPABASE_ANON_KEY
+        self.jwt_secret = settings.JWT_SECRET or secrets.token_hex(32)
         self.jwt_algorithm = "HS256"
 
         if not self.supabase_url or not self.supabase_key:

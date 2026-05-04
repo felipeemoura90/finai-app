@@ -204,6 +204,8 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
   }
 
   Widget _buildCategoryItem(String nome, double valor, double porcentagem) {
+    final String pctStr = '${(porcentagem * 100).toStringAsFixed(1)}%';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Column(
@@ -211,11 +213,25 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(nome, style: const TextStyle(color: AppColors.textPrimary)),
-              Text(
-                'R\$ ${_formatarMoeda(valor)}',
-                style: const TextStyle(color: AppColors.textPrimary),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'R\$ ${_formatarMoeda(valor)}',
+                    style: const TextStyle(color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    pctStr,
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -253,22 +269,30 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Saldo disponível',
-                    style: TextStyle(color: AppColors.textMuted),
-                  ),
-                  Text(
-                    'R\$ ${saldo.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 34,
-                      fontWeight: FontWeight.bold,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Saldo disponível',
+                      style: TextStyle(color: AppColors.textMuted),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    // FittedBox garantindo que saldos gigantes não quebrem a tela
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'R\$ ${saldo.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 34,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -294,7 +318,8 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
   Widget _buildMiniCard(String label, double amount, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(18),
+        // Reduzi levemente o padding para aproveitar melhor o espaço em telas pequenas
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         decoration: BoxDecoration(
           color: AppColors.slate800,
           borderRadius: BorderRadius.circular(20),
@@ -302,17 +327,27 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+            // FittedBox no Label (Ganhos, Gastos, Meta)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
             ),
             const SizedBox(height: 12),
-            Text(
-              'R\$ ${_formatarMoeda(amount)}',
-              style: TextStyle(
-                color: color,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            // FittedBox no Valor (R$ 0.00)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'R\$ ${_formatarMoeda(amount)}',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],

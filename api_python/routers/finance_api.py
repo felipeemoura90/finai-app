@@ -1,8 +1,12 @@
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends, Request
 from pydantic import BaseModel
 from services.ofx_service import OfxService
 from services.auth_middleware import get_current_user # Importe o verificador
+from services.supabase_service import SupabaseService
+from services.ai_service import AIService
+from services.clearing_service import ClearingService
+from config import settings
 
 class NovaRegra(BaseModel):
     keyword: str
@@ -19,10 +23,21 @@ router = APIRouter(
 
 # Inicializa o serviço que lê o OFX
 ofx_engine = OfxService()
+supabase_db = SupabaseService()
+ai_brain = AIService()
+cleaner = ClearingService()
 
 # Adicionamos o meta_mensal como parâmetro, com 3000 de valor padrão
 @router.get("/dashboard")
-def get_dashboard_data(mes: str = "2026-04", meta_mensal: float = 3000.00):
+def get_dashboard_data(
+    mes: str = settings.DEFAULT_MONTH, 
+    meta_mensal: float = settings.DEFAULT_META,
+    current_user: dict = Depends(get_current_user)
+):
+    # Puxa do Supabase e injeta no motor Pandas
+    transacoes = supabase_db.get_user_transactions(current_user['id'], mes, current_user['token'])
+    ofx_engine.injetar_transacoes(transacoes)
+    
     resumo = ofx_engine.obter_resumo_dashboard(mes, meta_mensal)
     
     ganhos = resumo["ganhos"]
@@ -47,7 +62,13 @@ def get_dashboard_data(mes: str = "2026-04", meta_mensal: float = 3000.00):
     }
 
 @router.get("/feed")
-def get_feed(mes: str = "2026-04"):
+def get_feed(
+    mes: str = settings.DEFAULT_MONTH,
+    current_user: dict = Depends(get_current_user)
+):
+    transacoes = supabase_db.get_user_transactions(current_user['id'], mes, current_user['token'])
+    ofx_engine.injetar_transacoes(transacoes)
+    
     # Chama a função blindada que criamos acima
     dados_feed = ofx_engine.obter_extrato_feed(mes)
     
@@ -71,7 +92,14 @@ def get_settings_params():
         }
     }
 @router.get("/fluxo")
-def get_fluxo_caixa(mes: str = "2026-04"):
+def get_fluxo_caixa(
+    mes: str = settings.DEFAULT_MONTH,
+    current_user: dict = Depends(get_current_user)
+):
+    # Verifique se o current_user['token'] foi adicionado aqui no finalzinho:
+    transacoes = supabase_db.get_user_transactions(current_user['id'], mes, current_user['token'])
+    
+    ofx_engine.injetar_transacoes(transacoes)
     dados_diarios = ofx_engine.obter_fluxo_diario(mes)
     return {
         "status": "success",
@@ -98,27 +126,64 @@ def processar_extrato_background(caminho_arquivo: str):
 
 @router.post("/upload")
 async def upload_arquivo(
-    background_tasks: BackgroundTasks, 
+    request: Request,
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user) # Trancando a rota!
+    current_user: dict = Depends(get_current_user)
 ):
-    upload_dir = Path("data")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    destino = upload_dir / file.filename
     try:
-        # Lemos e salvamos o arquivo fisicamente o mais rápido possível
-        conteudo = await file.read()
-        with destino.open("wb") as buffer:
-            buffer.write(conteudo)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao salvar o arquivo: {e}")
+        print(f"[UPLOAD] Arquivo recebido: {file.filename} do usuario {current_user.get('email')}")
+        conteudo_bytes = await file.read()
+        print(f"[UPLOAD] Tamanho do arquivo: {len(conteudo_bytes)} bytes")
 
-    # Delegamos a leitura lenta do Pandas para rodar em segundo plano
-    background_tasks.add_task(processar_extrato_background, str(destino))
-    
-    # Liberamos o aplicativo do celular instantaneamente!
-    return {
-        "status": "success", 
-        "message": f"Arquivo recebido! O processamento das transações de {current_user.get('email')} está ocorrendo em segundo plano."
-    }
+        # Tenta decodificar o texto
+        try:
+            texto = conteudo_bytes.decode('utf-8')
+        except:
+            texto = conteudo_bytes.decode('latin-1')
+
+        # Usa IA para ler o arquivo (Groq primeiro, Gemini como fallback)
+        print("[UPLOAD] Enviando para a IA ler o extrato...")
+        transacoes_brutas = ai_brain.extrair_transacoes_do_arquivo(texto)
+        
+        if not transacoes_brutas:
+            print("[UPLOAD] Nenhuma transacao extraida!")
+            raise HTTPException(
+                status_code=400, 
+                detail="Nao foi possivel ler as transacoes deste arquivo. Verifique o formato."
+            )
+
+        print(f"[UPLOAD] {len(transacoes_brutas)} transacoes extraidas. Formatando para o Supabase...")
+
+        # Formata para o Supabase
+        transacoes_prontas = []
+        for t in transacoes_brutas:
+            dados_limpos = cleaner.limpar_transacao(t['descricao'])
+            
+            transacoes_prontas.append({
+                "user_id": current_user['id'],
+                "data": t['data'] + "T12:00:00Z",
+                "descricao": dados_limpos['name'],
+                "valor": float(t['valor']),
+                "categoria": dados_limpos['categoria'],
+                "icon": dados_limpos['icon'],
+                "raw_data": t['descricao']
+            })
+
+        # Insere no Supabase
+        auth_header = request.headers.get('Authorization')
+        token = auth_header.replace('Bearer ', '') if auth_header else ""
+        
+        print(f"[UPLOAD] Inserindo {len(transacoes_prontas)} transacoes no Supabase...")
+        supabase_db.insert_transactions_for_user(token, transacoes_prontas)
+
+        print("[UPLOAD] Concluido com sucesso!")
+        return {
+            "status": "success", 
+            "message": f"{len(transacoes_prontas)} transacoes processadas e salvas."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao processar o arquivo: {e}")

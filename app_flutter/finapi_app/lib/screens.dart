@@ -155,7 +155,7 @@ class Tela1Dashboard extends StatelessWidget {
 
   Future<Map<String, dynamic>> fetchDashboard() async {
     final url = Uri.parse(
-      'http://172.16.2.168:8000/api/dashboard?mes=$mesReferencia&meta_mensal=$metaMensal',
+      '$apiBaseUrl/dashboard?mes=$mesReferencia&meta_mensal=$metaMensal',
     );
     final response = await http.get(url);
 
@@ -570,7 +570,7 @@ class Tela2Feed extends StatefulWidget {
 class _Tela2FeedState extends State<Tela2Feed> {
   Future<List<dynamic>> fetchFeed() async {
     final url = Uri.parse(
-      'http://172.16.2.168:8000/api/feed?mes=${widget.mesReferencia}',
+      '$apiBaseUrl/feed?mes=${widget.mesReferencia}',
     );
     final response = await http.get(url);
     if (response.statusCode == 200) {
@@ -908,7 +908,7 @@ class Tela3Calendar extends StatelessWidget {
 
   Future<List<dynamic>> fetchFluxo() async {
     final url = Uri.parse(
-      'http://172.16.2.168:8000/api/fluxo?mes=$mesReferencia',
+      '$apiBaseUrl/fluxo?mes=$mesReferencia',
     );
     final response = await http.get(url);
     if (response.statusCode == 200) {

@@ -38,6 +38,25 @@ class OfxService:
             print(f"[ERRO] Falha crítica ao ler o arquivo: {e}")
             self.df = pd.DataFrame()
 
+    def injetar_transacoes(self, transacoes: list):
+        """Injeta transações vindas do banco de dados (Supabase) diretamente no DataFrame do Pandas"""
+        if not transacoes:
+            self.df = pd.DataFrame()
+            return
+            
+        self.df = pd.DataFrame(transacoes)
+        
+        # --- CORREÇÃO AQUI ---
+        # Garante que a coluna data seja datetime E remove o timezone (fuso) para não crashar o Fluxo!
+        self.df['data'] = pd.to_datetime(self.df['data'], utc=True).dt.tz_localize(None)
+        # ---------------------
+        
+        self.df['mes_ano'] = self.df['data'].dt.strftime('%Y-%m')
+        
+        # Pega a descrição limpa e o valor
+        self.df['id'] = self.df['id'].astype(str) if 'id' in self.df.columns else self.df.index.astype(str)
+        print(f"[OK] Injetadas {len(self.df)} transações do Supabase no motor Pandas.")
+
     def _padronizar_dataframe(self, df):
         """Uma peneira inteligente para achar as colunas em qualquer Excel/CSV de banco"""
         df.columns = df.columns.astype(str).str.lower().str.strip()
@@ -173,7 +192,8 @@ class OfxService:
 
         resultado = []
         for index, row in df_gastos_mes.iterrows():
-            texto_bruto = str(row['descricao'])
+            # Tenta pegar o texto feio original. Se não existir, pega a descrição normal.
+            texto_bruto = str(row.get('raw_data', row['descricao']))
             dados_limpos = self.cleaner.limpar_transacao(texto_bruto)
             
             # Monta o pacote EXATAMENTE como o Flutter espera

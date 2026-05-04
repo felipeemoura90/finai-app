@@ -2,12 +2,13 @@ import os
 import re
 from supabase import create_client, Client
 from services.ai_service import AIService
+from config import settings
 
 class ClearingService:
     def __init__(self):
         # Captura as credenciais que já existem no seu arquivo .env
-        url: str = os.getenv("SUPABASE_URL")
-        key: str = os.getenv("SUPABASE_ANON_KEY")
+        url: str = settings.SUPABASE_URL
+        key: str = settings.SUPABASE_ANON_KEY
         
         if not url or not key:
             print("[AVISO] Credenciais do Supabase ausentes. O serviço de limpeza pode falhar.")

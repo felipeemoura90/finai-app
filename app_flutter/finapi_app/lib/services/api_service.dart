@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/app_config.dart';
 
 class ApiService {
-  static const String _baseUrl = 'http://172.16.2.168:8000/api';
+  static const String _baseUrl = apiBaseUrl;
 
   // Função auxiliar para criar os cabeçalhos com o token
   Map<String, String> _getHeaders(String token) {

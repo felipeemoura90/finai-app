@@ -27,3 +27,15 @@ const String supabaseAnonKey = String.fromEnvironment(
 const String authCallbackUrl = 'finapi://auth/callback';
 
 const bool isProduction = bool.fromEnvironment('dart.vm.product');
+
+const String apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://127.0.0.1:8000/api',
+);
+
+double safeDouble(dynamic value) {
+  if (value == null) return 0.0;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0.0;
+  return 0.0;
+}

@@ -6,7 +6,10 @@ import 'core/app_config.dart';
 import 'widgets/main_layout.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'widgets/splash_screen.dart';
+import 'services/api_service.dart';
+import 'package:intl/intl.dart';
 
 void main() async {
   // Inicializa Flutter
@@ -51,24 +54,95 @@ class FinAIApp extends StatelessWidget {
   }
 }
 
-class AuthGuard extends StatelessWidget {
+class AuthGuard extends StatefulWidget {
   final Widget child;
   const AuthGuard({super.key, required this.child});
+
+  @override
+  State<AuthGuard> createState() => _AuthGuardState();
+}
+
+class _AuthGuardState extends State<AuthGuard> {
+  bool _checkingOnboarding = false;
+  bool _needsOnboarding = false;
+  bool _onboardingSkipped = false;
+  bool _onboardingChecked = false;
+
+  Future<void> _checkIfNeedsOnboarding() async {
+    if (_onboardingChecked || _onboardingSkipped) return;
+
+    setState(() => _checkingOnboarding = true);
+
+    try {
+      // Verifica diretamente no Supabase se o usuário possui QUALQUER transação salva.
+      // O .limit(1) faz a consulta ser instantânea, pois só queremos saber se existe "pelo menos uma".
+      final data = await Supabase.instance.client
+          .from('transactions')
+          .select('id')
+          .limit(1);
+
+      setState(() {
+        // Se a lista 'data' vier vazia, ele precisa do onboarding.
+        // Se tiver 1 item, a lista não é vazia, então _needsOnboarding = false e ele vai direto pro App!
+        _needsOnboarding = data.isEmpty; 
+        _onboardingChecked = true;
+        _checkingOnboarding = false;
+      });
+    } catch (e) {
+      // Se der erro de conexão (ex: sem internet), pula o onboarding e tenta abrir o cache
+      setState(() {
+        _needsOnboarding = false;
+        _onboardingChecked = true;
+        _checkingOnboarding = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, _) {
         if (authProvider.isLoading) {
-          // Substituímos o Scaffold anterior por este:
-          return const FinAiSplashScreen(); // <-- CARREGAMENTO COM STORYTELLING
+          return const FinAiSplashScreen();
         }
 
         if (!authProvider.isAuthenticated) {
-          return const LoginScreen(); //[cite: 10]
+          // Reset onboarding state on logout
+          _onboardingChecked = false;
+          _onboardingSkipped = false;
+          _needsOnboarding = false;
+          return const LoginScreen();
         }
 
-        return child; // Retorna o MainLayout[cite: 8]
+        // User is authenticated, check if needs onboarding
+        if (!_onboardingChecked && !_onboardingSkipped) {
+          if (!_checkingOnboarding) {
+            // Agendar a verificação para depois do build terminar
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _checkIfNeedsOnboarding();
+            });
+          }
+          return const FinAiSplashScreen(); // Show splash while checking
+        }
+
+        if (_needsOnboarding && !_onboardingSkipped) {
+          return OnboardingScreen(
+            onSkip: () {
+              setState(() {
+                _onboardingSkipped = true;
+                _needsOnboarding = false;
+              });
+            },
+            onComplete: () {
+              setState(() {
+                _needsOnboarding = false;
+                _onboardingSkipped = true;
+              });
+            },
+          );
+        }
+
+        return widget.child; // Retorna o MainLayout
       },
     );
   }

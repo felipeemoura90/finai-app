@@ -1,19 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'dart:convert';
-import 'dart:async'; // <-- NOVO: Necessário para o StreamSubscription
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import '../core/app_config.dart';
 
 class AuthProvider with ChangeNotifier {
   final SupabaseClient _supabase = Supabase.instance.client;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   User? _user;
   bool _isLoading = true;
   String? _errorMessage;
 
-  // <-- NOVO: Variável para guardar a escuta de eventos do Supabase
   StreamSubscription<AuthState>? _authSubscription;
 
   User? get user => _user;
@@ -30,30 +27,17 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Tenta recuperar sessão salva
-      final sessionString = await _storage.read(key: 'session');
-      if (sessionString != null) {
-        try {
-          // Tenta decodificar. Se o texto estiver quebrado, ele pula pro "catch"
-          final sessionMap = jsonDecode(sessionString) as Map<String, dynamic>;
-          final session = Session.fromJson(sessionMap);
+      // O Supabase SDK gerencia a sessão automaticamente (salvando localmente).
+      // Não precisamos do FlutterSecureStorage manualmente.
+      _user = _supabase.auth.currentUser;
 
-          if (session != null) {
-            _supabase.auth.setSession(session.accessToken);
-            _user = session.user;
-          }
-        } catch (e) {
-          // Se der o erro de formatação, simplesmente apaga a sujeira antiga
-          await _storage.delete(key: 'session');
-        }
-      }
-
-      // Escuta mudanças de estado de auth e guarda na variável _authSubscription
+      // Escuta mudanças de estado de auth e intercepta logins / logouts
       _authSubscription = _supabase.auth.onAuthStateChange.listen((event) {
         _user = event.session?.user;
-        _saveSession(event.session);
         notifyListeners();
       });
+      
+      // Delay artificial para a Splash Screen aparecer
       await Future.delayed(const Duration(milliseconds: 3500));
     } catch (e) {
       _errorMessage = 'Erro ao inicializar autenticação: $e';
@@ -63,19 +47,13 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _saveSession(Session? session) async {
-    if (session != null) {
-      await _storage.write(key: 'session', value: jsonEncode(session.toJson()));
-    } else {
-      await _storage.delete(key: 'session');
-    }
-  }
-
   Future<void> signInWithGoogle() async {
     try {
       await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: authCallbackUrl,
+        // No Flutter Web, o redirectTo nulo faz com que redirecione para a mesma página atual.
+        // No mobile, usamos o deeplink customizado.
+        redirectTo: kIsWeb ? null : authCallbackUrl,
         scopes: 'email profile',
       );
     } catch (e) {
@@ -89,7 +67,6 @@ class AuthProvider with ChangeNotifier {
 
     try {
       await _supabase.auth.signOut();
-      await _storage.delete(key: 'session');
       _user = null;
     } catch (e) {
       _errorMessage = 'Erro ao fazer logout: $e';
@@ -116,7 +93,6 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // <-- NOVO: Sobrescrevemos o dispose para limpar o listener e evitar Memory Leak
   @override
   void dispose() {
     _authSubscription?.cancel();
