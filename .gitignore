@@ -57,3 +57,14 @@ app.*.map.json
 **/android/app/debug
 **/android/app/profile
 **/android/app/release
+
+# ==========================================
+# EXCLUIR A PASTA ANTI-GRAVITY (Inteligência)
+# ==========================================
+# O comando 'git rm -r --cached data' abaixo já tirou do rastreamento,
+# mas para garantir que o Git não "veja" nada nessa pasta:
+
+# Adiciona a pasta inteira ao ignore.
+# Isso impede que o Git a rastreie no futuro.
+api_python/venv/
+
