@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import google.generativeai as genai
 from typing import Dict, List, Optional
 from config import settings
@@ -19,6 +20,28 @@ class AIService:
         self.model = genai.GenerativeModel('gemini-2.0-flash')
         self.enabled = True
         print("[OK] IA Gemini conectada com sucesso!")
+
+    def _limpar_resposta_json(self, texto_resposta: str):
+        """Remove blocos de markdown e parseia o JSON da resposta da IA com segurança usando Regex"""
+        if not texto_resposta:
+            raise ValueError("A resposta da IA está vazia.")
+
+        texto_limpo = texto_resposta.strip()
+        
+        # Expressão regular para capturar tudo entre o primeiro '{' ou '[' e o último '}' ou ']'
+        match = re.search(r'(\{.*\}|\[.*\])', texto_limpo, re.DOTALL)
+        if match:
+            texto_limpo = match.group(1)
+        else:
+            # Fallback manual de limpeza
+            texto_limpo = texto_limpo.replace('```json', '').replace('```', '').strip()
+        
+        try:
+            return json.loads(texto_limpo)
+        except json.JSONDecodeError as e:
+            print(f"[ERRO IA] Falha ao decodificar JSON: {e}")
+            print(f"[TEXTO QUE A IA ENVIOU] {texto_limpo}")
+            raise e
 
     def categorizar_transacao(self, texto_bruto: str) -> Dict[str, str]:
         """
@@ -51,16 +74,20 @@ Retorne APENAS um JSON valido no formato:
                 response = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": "Voce categoriza transacoes financeiras. Responda APENAS com JSON valido."},
+                        {"role": "system", "content": "Voce categoriza transacoes financeiras. Responda APENAS com JSON valido. Suas chaves devem ser obrigatoriamente: name, categoria e icon."},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.1,
                     max_tokens=150,
+                    response_format={"type": "json_object"} # Força o Groq a devolver um JSON
                 )
-                result = json.loads(response.choices[0].message.content.strip())
-                result["name"] = result.get("name", texto_bruto[:25].title())[:25]
-                result["categoria"] = result.get("categoria", "Outros")
-                result["icon"] = result.get("icon", "help_outline")
+                
+                texto_resposta = response.choices[0].message.content
+                result = self._limpar_resposta_json(texto_resposta)
+                
+                result["name"] = result.get("name", fallback["name"])[:25]
+                result["categoria"] = result.get("categoria", fallback["categoria"])
+                result["icon"] = result.get("icon", fallback["icon"])
                 return result
             except Exception as e:
                 print(f"[WARNING] Groq categorizacao falhou: {e}")
@@ -69,15 +96,11 @@ Retorne APENAS um JSON valido no formato:
         if self.enabled:
             try:
                 response = self.model.generate_content(prompt)
-                texto_resp = response.text.strip()
-                if texto_resp.startswith("```"):
-                    texto_resp = texto_resp.split("```")[1]
-                    if texto_resp.startswith("json"):
-                        texto_resp = texto_resp[4:]
-                result = json.loads(texto_resp.strip())
-                result["name"] = result.get("name", texto_bruto[:25].title())[:25]
-                result["categoria"] = result.get("categoria", "Outros")
-                result["icon"] = result.get("icon", "help_outline")
+                result = self._limpar_resposta_json(response.text)
+                
+                result["name"] = result.get("name", fallback["name"])[:25]
+                result["categoria"] = result.get("categoria", fallback["categoria"])
+                result["icon"] = result.get("icon", fallback["icon"])
                 return result
             except Exception as e:
                 print(f"[WARNING] Gemini categorizacao falhou: {e}")
@@ -98,12 +121,9 @@ Retorne APENAS um JSON valido no formato:
         meta = dados_mes.get("meta", 3000)
         categorias = dados_mes.get("categorias", [])
 
-        print(f"[INFO] Dados para IA: ganhos={ganhos:.2f}, gastos={gastos:.2f}, saldo={saldo:.2f}, meta={meta:.2f}")
-
-        # Preparar dados das categorias para o prompt
         categorias_texto = "\n".join([
             f"- {cat['nome']}: R$ {cat['valor']:.2f}"
-            for cat in categorias[:5]  # Top 5 categorias
+            for cat in categorias[:5]
         ])
 
         prompt = f"""Analise estes dados financeiros do mes e gere um insight personalizado e util.
@@ -126,7 +146,6 @@ Seja amigavel e direto ao ponto."""
 
         insight_padrao = f"Seu saldo do mes foi de R$ {saldo:.2f}. Mantenha o controle dos gastos!"
 
-        # Tenta Groq primeiro (rapido e gratuito)
         groq_key = settings.GROQ_API_KEY
         if groq_key:
             try:
@@ -144,12 +163,10 @@ Seja amigavel e direto ao ponto."""
                 insight = response.choices[0].message.content.strip()
                 if len(insight) > 200:
                     insight = insight[:200] + "..."
-                print(f"[OK] Insight gerado pelo Groq: {insight[:50]}...")
                 return insight
             except Exception as e:
                 print(f"[WARNING] Groq insight falhou: {e}")
 
-        # Fallback: Gemini
         if self.enabled:
             try:
                 response = self.model.generate_content(prompt)
@@ -162,60 +179,33 @@ Seja amigavel e direto ao ponto."""
 
         return insight_padrao
 
-    def _get_prompt_extracao(self, texto_cortado: str) -> str:
-        """Gera o prompt padronizado para extração de transações"""
-        return f"""Voce e um assistente financeiro especialista em leitura de extratos bancarios.
-Abaixo, voce recebera o conteudo bruto de um arquivo de extrato bancario (pode ser CSV, TXT ou OFX).
-Sua tarefa e extrair todas as transacoes financeiras desse texto e converte-las em um formato JSON estrito.
-
-Regras de extracao:
-- O valor deve ser um numero float. Despesas/saidas devem ser NEGATIVAS. Entradas/receitas devem ser POSITIVAS.
-- A data deve estar no formato "YYYY-MM-DD".
-- A descricao deve ser o mais limpa possivel.
-- Ignore linhas de cabecalho, saldos anteriores e lixo.
-
-Texto bruto do arquivo:
-'''
-{texto_cortado}
-'''
-
-Retorne APENAS um array JSON valido, sem markdown, contendo objetos com este formato exato:
-[
-    {{
-        "data": "2023-10-25",
-        "descricao": "NOME DO GASTO OU RECEITA",
-        "valor": -150.50
-    }},
-    ...
-]"""
-
-    def _limpar_resposta_json(self, texto_resposta: str) -> list:
-        """Remove blocos de markdown e parseia o JSON da resposta da IA"""
-        texto_resposta = texto_resposta.strip()
-        if texto_resposta.startswith("```json"):
-            texto_resposta = texto_resposta[7:]
-        if texto_resposta.startswith("```"):
-            texto_resposta = texto_resposta[3:]
-        if texto_resposta.endswith("```"):
-            texto_resposta = texto_resposta[:-3]
-        return json.loads(texto_resposta.strip())
-
     def extrair_transacoes_do_arquivo(self, texto_bruto: str) -> List[Dict]:
         """
         Extrai transacoes de um arquivo usando Groq (Llama) como motor principal
         e Gemini como fallback.
         """
         import re
-        # Remove tags XML/OFX que sao lixo para a IA (ex: <STMTTRN>, </TRNAMT>, etc.)
         texto_limpo = re.sub(r'<[^>]+>', ' ', texto_bruto)
-        # Remove linhas vazias e espaços extras
         texto_limpo = re.sub(r'\s+', ' ', texto_limpo).strip()
-        
-        # Limita o texto para caber no limite de tokens
         texto_cortado = texto_limpo[:8000]
-        prompt = self._get_prompt_extracao(texto_cortado)
+        
+        prompt = f"""
+        Você é um analista financeiro especialista em limpar e organizar extratos bancários brasileiros.
+        Leia o texto bruto do extrato abaixo e extraia todas as transações financeiras.
+        
+        Você DEVE retornar APENAS um array JSON válido, sem formatação markdown ou textos adicionais.
+        Cada objeto do array deve conter estritamente as seguintes chaves:
+        
+        1. "data": A data da transação no formato YYYY-MM-DD.
+        2. "valor": O valor numérico da transação (use negativo para saídas e positivo para entradas).
+        3. "descricao_original": O texto exato e feio que veio no extrato (ex: "PGTO*EMP 12345 BR").
+        4. "nome_limpo": Tente deduzir o nome fantasia real da loja ou serviço. Remova códigos, datas, e deixe com a primeira letra maiúscula.
+        5. "categoria_sugerida": Sugira a categoria mais lógica. Escolha APENAS entre: Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Transferências, Serviços, ou Outros.
+        
+        TEXTO BRUTO DO EXTRATO:
+        {texto_cortado}
+        """
 
-        # ====== TENTATIVA 1: GROQ (gratuito) ======
         groq_key = settings.GROQ_API_KEY
         if groq_key:
             try:
@@ -226,7 +216,7 @@ Retorne APENAS um array JSON valido, sem markdown, contendo objetos com este for
                 response = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": "Voce e um assistente financeiro que extrai transacoes de extratos bancarios. Responda APENAS com JSON valido, sem texto extra."},
+                        {"role": "system", "content": "Voce e um assistente financeiro que extrai transacoes. Responda APENAS com JSON valido, sem markdown. O JSON deve ser um array no root."},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.1,
@@ -235,13 +225,13 @@ Retorne APENAS um array JSON valido, sem markdown, contendo objetos com este for
                 
                 texto_resposta = response.choices[0].message.content
                 transacoes = self._limpar_resposta_json(texto_resposta)
+                
                 print(f"[OK] Groq extraiu {len(transacoes)} transacoes com sucesso!")
                 return transacoes
                 
             except Exception as e:
                 print(f"[WARNING] Groq falhou: {e}. Tentando Gemini...")
 
-        # ====== TENTATIVA 2: GEMINI (fallback) ======
         if self.enabled:
             try:
                 print("[INFO] Usando Gemini como fallback para ler o extrato...")
@@ -256,11 +246,6 @@ Retorne APENAS um array JSON valido, sem markdown, contendo objetos com este for
         return []
 
     def analisar_tendencias(self, dados_historicos: List[Dict]) -> str:
-        """
-        Analisa tendencias baseadas em dados historicos (futuro).
-        """
         if not self.enabled or not dados_historicos:
             return "Analise de tendencias indisponivel."
-
-        # Implementacao futura para analise historica
         return "Tendencias serao analisadas em breve."

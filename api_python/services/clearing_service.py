@@ -1,69 +1,101 @@
 import os
 import re
+import httpx
 from supabase import create_client, Client
 from services.ai_service import AIService
 from config import settings
 
 class ClearingService:
     def __init__(self):
-        # Captura as credenciais que já existem no seu arquivo .env
         url: str = settings.SUPABASE_URL
         key: str = settings.SUPABASE_ANON_KEY
         
         if not url or not key:
-            print("[AVISO] Credenciais do Supabase ausentes. O serviço de limpeza pode falhar.")
+            print("[AVISO] Credenciais do Supabase ausentes.")
             
-        # Inicializa a conexão direta com o banco de dados do Supabase
         self.supabase: Client = create_client(url, key)
         self.ai = AIService()
         
-        # Carrega as regras logo ao iniciar o servidor
-        self.dicionario = self._carregar_regras()
+        # O dicionário global vazio serve apenas de fallback caso algum outro serviço antigo chame a classe
+        self.dicionario = {} 
 
-    def _carregar_regras(self):
-        """Busca todas as regras no Supabase e coloca na memória RAM (Dicionário) para ser rápido."""
+    def carregar_regras_usuario(self, user_id: str, token: str) -> dict:
+        """Busca as regras exclusivas do usuário via REST API com o Token dele (Respeita RLS)"""
         dicionario = {}
-        try:
-            # Substitui o SELECT do SQLite pela chamada à API do Supabase
-            response = self.supabase.table('regras').select('*').execute()
+        if not user_id or not token:
+            return dicionario
             
-            for row in response.data:
-                dicionario[row['keyword']] = {
-                    "nome": row['name'], 
-                    "categoria": row['categoria'], 
-                    "icon": row['icon']
-                }
-            print(f"[OK] {len(dicionario)} regras carregadas do Supabase com sucesso.")
+        try:
+            headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            url = f"{settings.SUPABASE_URL}/rest/v1/regras?user_id=eq.{user_id}&select=*"
+            
+            with httpx.Client() as client:
+                response = client.get(url, headers=headers, timeout=10.0)
+                
+            if response.status_code == 200:
+                for row in response.json():
+                    dicionario[row['keyword']] = {
+                        "nome": row['name'], 
+                        "categoria": row['categoria'], 
+                        "icon": row['icon']
+                    }
+                print(f"[OK] {len(dicionario)} regras carregadas do banco para este usuário.")
+            else:
+                print(f"[ERRO REST] Falha ao carregar regras. Status: {response.status_code}")
+                
         except Exception as e:
-            print(f"[ERRO] Falha ao carregar regras do Supabase: {e}")
+            print(f"[ERRO] Exceção ao carregar regras do usuário: {e}")
             
         return dicionario
 
-    def salvar_regra(self, keyword: str, name: str, categoria: str, icon: str):
-        """Adiciona ou Atualiza (UPSERT) uma regra no Supabase e recarrega a memória."""
+    def salvar_regra(self, user_id: str, keyword: str, name: str, categoria: str, icon: str, token: str = None):
+        """Adiciona ou Atualiza (UPSERT) uma regra no Supabase."""
         try:
             dados = {
+                "user_id": user_id,
                 "keyword": keyword.upper(),
                 "name": name,
                 "categoria": categoria,
                 "icon": icon
             }
-            # O comando 'upsert' faz o mesmo papel do 'ON CONFLICT DO UPDATE' do SQLite
-            self.supabase.table('regras').upsert(dados).execute()
             
-            print(f"[OK] Regra '{keyword.upper()}' salva/atualizada no Supabase.")
-            
-            # Atualiza a memória local para a regra já funcionar no próximo processamento
-            self.dicionario = self._carregar_regras()
+            if token:
+                headers = {
+                    "apikey": settings.SUPABASE_ANON_KEY,
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "Prefer": "resolution=merge-duplicates" 
+                }
+                
+                # CORREÇÃO CRÍTICA DO ERRO 409: Informamos as colunas de conflito na URL
+                url = f"{settings.SUPABASE_URL}/rest/v1/regras?on_conflict=user_id,keyword"
+                
+                with httpx.Client() as client:
+                    response = client.post(url, json=dados, headers=headers, timeout=10.0)
+                    
+                if response.status_code in (200, 201, 204):
+                    print(f"[OK] Regra '{keyword.upper()}' salva/atualizada no Supabase via REST.")
+                else:
+                    print(f"[ERRO REST] Falha ao salvar regra. Status {response.status_code}: {response.text}")
+            else:
+                self.supabase.table('regras').upsert(dados).execute()
+                
         except Exception as e:
             print(f"[ERRO] Falha ao salvar regra no Supabase: {e}")
 
-    def limpar_transacao(self, texto_bruto: str) -> dict:
-        """Aplica a regra de limpeza ou chama a IA se for desconhecido (Mantido intacto)"""
+    def limpar_transacao(self, texto_bruto: str, user_id: str = None, token: str = None, regras_cacheadas: dict = None) -> dict:
+        """Aplica a regra de limpeza consultando o dicionário local em memória."""
         texto_upper = str(texto_bruto).upper()
+        
+        # Usa o cache passado pela tarefa (ou um dicionário vazio se não enviaram nada)
+        cache_local = regras_cacheadas if regras_cacheadas is not None else self.dicionario
 
-        # 1. Tenta achar no dicionário carregado do banco
-        for chave, dados_limpos in self.dicionario.items():
+        # 1. Verifica se a regra já existe no cache
+        for chave, dados_limpos in cache_local.items():
             if chave in texto_upper:
                 return {
                     "name": dados_limpos["nome"],
@@ -72,13 +104,30 @@ class ClearingService:
                     "trust": "high"
                 }
 
-        # 2. Se não encontrou, pede ajuda para a IA do Gemini
+        # 2. Se não encontrou, pede ajuda para a IA
         print(f"🤖 Usando IA para categorizar: {texto_bruto}")
         ai_result = self.ai.categorizar_transacao(texto_bruto)
 
-        # 3. Salva a decisão da IA automaticamente no Supabase
-        keyword = texto_upper[:20] 
-        self.salvar_regra(keyword, ai_result["name"], ai_result["categoria"], ai_result["icon"])
+        # 3. Salva a decisão e ATUALIZA O CACHE LOCAL instantaneamente
+        if user_id:
+            keyword = texto_upper[:20] 
+            self.salvar_regra(
+                user_id=user_id, 
+                keyword=keyword, 
+                name=ai_result["name"], 
+                categoria=ai_result["categoria"], 
+                icon=ai_result["icon"],
+                token=token 
+            )
+            
+            # Adiciona a regra recém-descoberta ao cache em memória da tarefa.
+            # Se houver outra transação igual neste mesmo extrato, não chamará a IA novamente!
+            if regras_cacheadas is not None:
+                regras_cacheadas[keyword] = {
+                    "nome": ai_result["name"],
+                    "categoria": ai_result["categoria"],
+                    "icon": ai_result["icon"]
+                }
 
         return {
             "name": ai_result["name"],

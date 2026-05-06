@@ -78,9 +78,8 @@ class _Tela2FeedState extends State<Tela2Feed> {
   void _mostrarDialogoRegra(BuildContext context, Map<String, dynamic> item) {
     final keywordCtrl = TextEditingController(text: item['raw']);
     final nameCtrl = TextEditingController(text: item['name']);
-    var categoriaSelecionada = item['categoria'] ?? 'Outros';
-    var iconeSelecionado = item['icon'] ?? 'help_outline';
-
+    
+    // --- INÍCIO DA CORREÇÃO DE SEGURANÇA ---
     final categorias = [
       'Mercado',
       'Alimentação',
@@ -92,6 +91,7 @@ class _Tela2FeedState extends State<Tela2Feed> {
       'Serviços',
       'Outros',
     ];
+    
     final icones = [
       'shopping_cart',
       'restaurant',
@@ -103,6 +103,33 @@ class _Tela2FeedState extends State<Tela2Feed> {
       'payment',
       'help_outline',
     ];
+
+    // 1. Limpa a string da categoria
+    String rawCategory = item['categoria']?.toString() ?? 'Outros';
+    
+    // 2. Corrige a falta de acentuação (comum em respostas de IA JSON)
+    const mapAcentos = {
+      'Alimentacao': 'Alimentação',
+      'Saude': 'Saúde',
+      'Educacao': 'Educação',
+      'Transferencia': 'Transferência',
+      'Servicos': 'Serviços',
+    };
+    rawCategory = mapAcentos[rawCategory] ?? rawCategory;
+
+    // 3. Trava de segurança: Se a IA enviar uma categoria inventada, forçamos 'Outros'
+    if (!categorias.contains(rawCategory)) {
+      rawCategory = 'Outros';
+    }
+    var categoriaSelecionada = rawCategory;
+
+    // 4. Trava de segurança para o ícone
+    String rawIcon = item['icon']?.toString() ?? 'help_outline';
+    if (!icones.contains(rawIcon)) {
+      rawIcon = 'help_outline';
+    }
+    var iconeSelecionado = rawIcon;
+    // --- FIM DA CORREÇÃO ---
 
     showDialog<void>(
       context: context,
@@ -180,7 +207,10 @@ class _Tela2FeedState extends State<Tela2Feed> {
               ),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                // TODO: Aqui depois conectaremos a sua API para Salvar no Supabase
+                Navigator.of(context).pop();
+              },
               child: const Text(
                 'Salvar',
                 style: TextStyle(color: AppColors.emeraldColor),

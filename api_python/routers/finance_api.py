@@ -8,6 +8,7 @@ from services.ai_service import AIService
 from services.clearing_service import ClearingService
 from config import settings
 from services.cache_service import CacheService
+from celery_worker import processar_extrato_task
 
 class NovaRegra(BaseModel):
     keyword: str
@@ -159,6 +160,7 @@ def salvar_nova_regra(
 ):
     # Envia a nova regra para o Supabase
     ofx_engine.cleaner.salvar_regra(
+        user_id=current_user['id'],
         keyword=regra.keyword,
         name=regra.name,
         categoria=regra.categoria,
@@ -189,60 +191,27 @@ async def upload_arquivo(
     try:
         print(f"[UPLOAD] Arquivo recebido: {file.filename} do usuario {current_user.get('email')}")
         conteudo_bytes = await file.read()
-        print(f"[UPLOAD] Tamanho do arquivo: {len(conteudo_bytes)} bytes")
 
-        # Tenta decodificar o texto
+        # Decodifica o arquivo para texto simples para viajar até o Celery via JSON
         try:
             texto = conteudo_bytes.decode('utf-8')
-        except:
+        except UnicodeDecodeError:
             texto = conteudo_bytes.decode('latin-1')
 
-        # Usa IA para ler o arquivo (Groq primeiro, Gemini como fallback)
-        print("[UPLOAD] Enviando para a IA ler o extrato...")
-        transacoes_brutas = ai_brain.extrair_transacoes_do_arquivo(texto)
-        
-        if not transacoes_brutas:
-            print("[UPLOAD] Nenhuma transacao extraida!")
-            raise HTTPException(
-                status_code=400, 
-                detail="Nao foi possivel ler as transacoes deste arquivo. Verifique o formato."
-            )
-
-        print(f"[UPLOAD] {len(transacoes_brutas)} transacoes extraidas. Formatando para o Supabase...")
-
-        # Formata para o Supabase
-        transacoes_prontas = []
-        for t in transacoes_brutas:
-            dados_limpos = cleaner.limpar_transacao(t['descricao'])
-            
-            transacoes_prontas.append({
-                "user_id": current_user['id'],
-                "data": t['data'] + "T12:00:00Z",
-                "descricao": dados_limpos['name'],
-                "valor": float(t['valor']),
-                "categoria": dados_limpos['categoria'],
-                "icon": dados_limpos['icon'],
-                "raw_data": t['descricao']
-            })
-
-        # Insere no Supabase
+        # Extrai o Token para dar permissão ao Celery de salvar os dados
         auth_header = request.headers.get('Authorization')
         token = auth_header.replace('Bearer ', '') if auth_header else ""
-        
-        print(f"[UPLOAD] Inserindo {len(transacoes_prontas)} transacoes no Supabase...")
-        supabase_db.insert_transactions_for_user(token, transacoes_prontas)
 
-        # ---> INVALIDE O CACHE AQUI <---
-        cache_engine.invalidate_user_cache(current_user['id'])
+        # ---> A MÁGICA DA FILA AQUI <---
+        # Ao invés de travar a API rodando a função, enviamos com .delay()
+        processar_extrato_task.delay(texto, current_user['id'], token)
 
-        print("[UPLOAD] Concluido com sucesso!")
+        # O FastAPI responde para o aplicativo Flutter instantaneamente!
         return {
             "status": "success", 
-            "message": f"{len(transacoes_prontas)} transacoes processadas e salvas."
+            "message": "Arquivo na fila! A IA está processando suas transações em segundo plano."
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=f"Falha ao processar o arquivo: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao receber o arquivo: {e}")
