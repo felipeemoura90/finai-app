@@ -249,3 +249,37 @@ Seja amigavel e direto ao ponto."""
         if not self.enabled or not dados_historicos:
             return "Analise de tendencias indisponivel."
         return "Tendencias serao analisadas em breve."
+
+def obter_resposta_chat(self, mensagem: str) -> str:
+        """Processa a mensagem do utilizador e devolve a resposta da IA"""
+        if not self.enabled:
+            return "A funcionalidade de chat está desativada temporariamente."
+
+        # Tenta Groq primeiro
+        groq_key = settings.GROQ_API_KEY
+        if groq_key:
+            try:
+                from groq import Groq
+                client = Groq(api_key=groq_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": "Você é o FinChat, um assistente financeiro amigável. Responda de forma curta e útil em português."},
+                        {"role": "user", "content": mensagem},
+                    ],
+                    temperature=0.7,
+                    max_tokens=200,
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"[WARNING] Groq chat falhou: {e}")
+
+        # Fallback: Gemini
+        try:
+            response = self.model.generate_content(
+                f"Você é o FinChat, um assistente financeiro amigável. Responda de forma curta em português à seguinte mensagem: {mensagem}"
+            )
+            return response.text.strip()
+        except Exception as e:
+            print(f"[ERROR] Erro na IA (Chat): {e}")
+            raise ValueError("Lamento, ocorreu um erro ao tentar processar a sua mensagem.")
