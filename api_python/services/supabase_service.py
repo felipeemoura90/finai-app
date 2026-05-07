@@ -44,27 +44,29 @@ class SupabaseService:
             return []
 
     def insert_transactions_for_user(self, access_token: str, transactions: List[Dict]):
-        """Insere transações usando a REST API do Supabase com o JWT do usuário"""
+        """Insere transações usando a REST API do Supabase com o JWT do usuário (fazendo UPSERT via FITID)"""
         if not transactions:
             return
             
         try:
-            # Usa a REST API diretamente com o token JWT do usuário para respeitar o RLS
+            # 1. Adicionamos 'resolution=merge-duplicates' para forçar o Upsert
             headers = {
                 "apikey": self.key,
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
-                "Prefer": "return=representation",
+                "Prefer": "resolution=merge-duplicates, return=representation",
             }
             
-            url = f"{self.url}/rest/v1/transactions"
+            # 2. Informamos a API que, em caso de conflito no 'fitid', ela deve atualizar em vez de duplicar
+            url = f"{self.url}/rest/v1/transactions?on_conflict=fitid"
             
             with httpx.Client() as client:
                 response = client.post(url, json=transactions, headers=headers, timeout=30.0)
                 
-            if response.status_code in (200, 201):
-                data = response.json()
-                print(f"[OK] {len(data)} transações inseridas no Supabase")
+            if response.status_code in (200, 201, 204):
+                # Como a API pode retornar vazio num upsert, usamos .json() apenas se houver conteúdo
+                data = response.json() if response.content else []
+                print(f"[OK] Transações processadas no Supabase (Upsert).")
             else:
                 print(f"[ERROR] Supabase retornou status {response.status_code}: {response.text}")
                 

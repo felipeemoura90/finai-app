@@ -1,4 +1,4 @@
-FinAI - Assistente Financeiro Inteligente
+# FinAI - Assistente Financeiro Inteligente
 O FinAI é uma plataforma moderna de gestão financeira que combina o poder da Inteligência Artificial com uma interface intuitiva e responsiva. O sistema permite que usuários importem extratos bancários (OFX), categorizem transações automaticamente via IA e recebam insights financeiros personalizados em tempo real.
 
 🚀 Tecnologias Utilizadas

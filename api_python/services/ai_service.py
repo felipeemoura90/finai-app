@@ -201,6 +201,7 @@ Seja amigavel e direto ao ponto."""
         3. "descricao_original": O texto exato e feio que veio no extrato.
         4. "nome_limpo": Nome fantasia real da loja ou serviço.
         5. "categoria_sugerida": Escolha APENAS entre: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferências, Serviços, ou Outros.
+        6. "fitid": O código único da transação que está na tag <FITID> correspondente.
         
         TEXTO BRUTO DO EXTRATO:
         {texto_cortado}
