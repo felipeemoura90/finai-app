@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
 
 class AppColors {
   static const Color background = Color(0xFF0A0F16);
@@ -28,10 +30,26 @@ const String authCallbackUrl = 'finapi://auth/callback';
 
 const bool isProduction = bool.fromEnvironment('dart.vm.product');
 
-const String apiBaseUrl = String.fromEnvironment(
+const String _envApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://127.0.0.1:8000/api',
+  defaultValue: '',
 );
+
+String get apiBaseUrl {
+  if (_envApiBaseUrl.isNotEmpty) {
+    return _envApiBaseUrl;
+  }
+
+  if (kIsWeb) {
+    return 'http://127.0.0.1:8000/api';
+  }
+
+  if (isAndroid) {
+    return 'http://10.0.2.2:8000/api';
+  }
+
+  return 'http://127.0.0.1:8000/api';
+}
 
 double safeDouble(dynamic value) {
   if (value == null) return 0.0;

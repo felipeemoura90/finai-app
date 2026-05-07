@@ -23,6 +23,9 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)] # TRANCANDO AS ROTAS!
 )
 
+class ChatRequest(BaseModel):
+    message: str
+
 # Inicializa o serviço que lê o OFX
 ofx_engine = OfxService()
 supabase_db = SupabaseService()
@@ -215,3 +218,58 @@ async def upload_arquivo(
     except Exception as e:
         print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"Falha ao receber o arquivo: {e}")
+
+@router.post("/chat")
+async def chat_finai(
+    request: ChatRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    # Chat temporariamente desativado. A lógica abaixo está preservada
+    # para reativação futura sem perder o trecho original.
+    if False:
+        try:
+            # Tenta Groq primeiro para o chat
+            groq_key = settings.GROQ_API_KEY
+            if groq_key:
+                try:
+                    from groq import Groq
+                    client = Groq(api_key=groq_key)
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": "Você é o FinChat, um assistente financeiro amigável. Responda de forma curta e útil em português."},
+                            {"role": "user", "content": request.message},
+                        ],
+                        temperature=0.7,
+                        max_tokens=200,
+                    )
+                    resposta_text = response.choices[0].message.content.strip()
+                    
+                    return {
+                        "status": "success",
+                        "data": {
+                            "response": resposta_text
+                        }
+                    }
+                except Exception as e:
+                    print(f"[WARNING] Groq chat falhou: {e}")
+
+            # Fallback: Gemini
+            resposta = ai_brain.model.generate_content(
+                f"Você é o FinChat. Responda de forma curta: {request.message}"
+            )
+            
+            return {
+                "status": "success",
+                "data": {
+                    "response": resposta.text
+                }
+            }
+        except Exception as e:
+            print(f"Erro na IA: {e}")
+            return {"status": "error", "message": str(e)}
+
+    return {
+        "status": "error",
+        "message": "Funcionalidade de chat desativada temporariamente."
+    }

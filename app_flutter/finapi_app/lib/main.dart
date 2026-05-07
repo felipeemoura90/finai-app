@@ -8,8 +8,6 @@ import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'widgets/splash_screen.dart';
-import 'services/api_service.dart';
-import 'package:intl/intl.dart';
 
 void main() async {
   // Inicializa Flutter
@@ -84,7 +82,7 @@ class _AuthGuardState extends State<AuthGuard> {
       setState(() {
         // Se a lista 'data' vier vazia, ele precisa do onboarding.
         // Se tiver 1 item, a lista não é vazia, então _needsOnboarding = false e ele vai direto pro App!
-        _needsOnboarding = data.isEmpty; 
+        _needsOnboarding = data.isEmpty;
         _onboardingChecked = true;
         _checkingOnboarding = false;
       });
