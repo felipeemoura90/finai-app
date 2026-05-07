@@ -1,67 +1,56 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/app_config.dart';
 
 class ApiService {
-  static final String _baseUrl = apiBaseUrl;
+  late final Dio _dio;
 
-  // Função auxiliar para criar os cabeçalhos com o token
-  Map<String, String> _getHeaders(String token) {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token', // <-- O "crachá" para o servidor
-    };
+  ApiService() {
+    _dio = Dio(BaseOptions(
+      baseUrl: apiBaseUrl,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ));
+
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        final session = Supabase.instance.client.auth.currentSession;
+        if (session != null) {
+          options.headers['Authorization'] = 'Bearer ${session.accessToken}';
+        }
+        return handler.next(options);
+      },
+      onError: (DioException e, handler) {
+        print("[API ERROR] ${e.response?.statusCode} - ${e.message}");
+        return handler.next(e);
+      },
+    ));
   }
 
-  Future<Map<String, dynamic>> getDashboard(
-    String mes,
-    double meta,
-    String token,
-  ) async {
-    final url = Uri.parse('$_baseUrl/dashboard?mes=$mes&meta_mensal=$meta');
-    final response = await http.get(url, headers: _getHeaders(token));
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body)['data'];
-    } else {
-      throw Exception('Erro ao carregar Dashboard: ${response.statusCode}');
-    }
+  // O token agora é opcional [String? token] para não quebrar os ecrãs antigos!
+  Future<Map<String, dynamic>> getDashboard(String mes, double meta, [String? token]) async {
+    final response = await _dio.get('/dashboard', queryParameters: {
+      'mes': mes,
+      'meta_mensal': meta,
+    });
+    return response.data['data'];
   }
 
-  Future<List<dynamic>> getFeed(String mes, String token) async {
-    final url = Uri.parse('$_baseUrl/feed?mes=$mes');
-    final response = await http.get(url, headers: _getHeaders(token));
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body)['data'] ?? [];
-    } else {
-      throw Exception('Erro ao carregar Feed: ${response.statusCode}');
-    }
+  Future<List<dynamic>> getFeed(String mes, [String? token]) async {
+    final response = await _dio.get('/feed', queryParameters: {'mes': mes});
+    return response.data['data'] ?? [];
   }
 
-  Future<List<dynamic>> getFluxo(String mes, String token) async {
-    final url = Uri.parse('$_baseUrl/fluxo?mes=$mes');
-    final response = await http.get(url, headers: _getHeaders(token));
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body)['data'] ?? [];
-    } else {
-      throw Exception('Erro ao carregar Fluxo: ${response.statusCode}');
-    }
+  Future<List<dynamic>> getFluxo(String mes, [String? token]) async {
+    final response = await _dio.get('/fluxo', queryParameters: {'mes': mes});
+    return response.data['data'] ?? [];
   }
 
-  Future<bool> uploadFile(
-    List<int> bytes,
-    String fileName,
-    String token,
-  ) async {
-    var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/upload'));
-    request.headers.addAll({'Authorization': 'Bearer $token'});
-    request.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-    );
-
-    var response = await request.send();
+  Future<bool> uploadFile(List<int> bytes, String fileName, [String? token]) async {
+    FormData formData = FormData.fromMap({
+      "file": MultipartFile.fromBytes(bytes, filename: fileName),
+    });
+    final response = await _dio.post('/upload', data: formData);
     return response.statusCode == 200;
   }
 }

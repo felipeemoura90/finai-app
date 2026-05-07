@@ -103,44 +103,20 @@ class _AuthGuardState extends State<AuthGuard> {
         if (authProvider.isLoading) {
           return const FinAiSplashScreen();
         }
-
+  
         if (!authProvider.isAuthenticated) {
-          // Reset onboarding state on logout
-          _onboardingChecked = false;
-          _onboardingSkipped = false;
-          _needsOnboarding = false;
           return const LoginScreen();
         }
-
-        // User is authenticated, check if needs onboarding
-        if (!_onboardingChecked && !_onboardingSkipped) {
-          if (!_checkingOnboarding) {
-            // Agendar a verificação para depois do build terminar
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _checkIfNeedsOnboarding();
-            });
-          }
-          return const FinAiSplashScreen(); // Show splash while checking
-        }
-
-        if (_needsOnboarding && !_onboardingSkipped) {
+  
+        // Lógica de Onboarding simplificada usando o estado do Provider
+        if (!authProvider.hasTransactions && !_onboardingSkipped) {
           return OnboardingScreen(
-            onSkip: () {
-              setState(() {
-                _onboardingSkipped = true;
-                _needsOnboarding = false;
-              });
-            },
-            onComplete: () {
-              setState(() {
-                _needsOnboarding = false;
-                _onboardingSkipped = true;
-              });
-            },
+            onSkip: () => setState(() => _onboardingSkipped = true),
+            onComplete: () => authProvider.checkUserTransactions(),
           );
         }
-
-        return widget.child; // Retorna o MainLayout
+  
+        return widget.child; // MainLayout
       },
     );
   }

@@ -1,101 +1,74 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:async';
-import '../core/app_config.dart';
+import 'package:flutter/foundation.dart'; // Para o kIsWeb
 
-class AuthProvider with ChangeNotifier {
-  final SupabaseClient _supabase = Supabase.instance.client;
-
+class AuthProvider extends ChangeNotifier {
   User? _user;
   bool _isLoading = true;
-  String? _errorMessage;
-
-  StreamSubscription<AuthState>? _authSubscription;
+  bool _hasTransactions = false;
+  String? _errorMessage; // <-- Restabelecido
 
   User? get user => _user;
   bool get isLoading => _isLoading;
-  String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _user != null;
+  bool get hasTransactions => _hasTransactions;
+  String? get errorMessage => _errorMessage; // <-- Restabelecido
+
+  String get userName => _user?.userMetadata?['full_name'] ?? 'Usuário';
+  String get userEmail => _user?.email ?? '';
+  String? get userPhoto => _user?.userMetadata?['avatar_url'];
 
   AuthProvider() {
-    _initializeAuth();
+    _init();
   }
 
-  Future<void> _initializeAuth() async {
-    _isLoading = true;
+  Future<void> _init() async {
+    _user = Supabase.instance.client.auth.currentUser;
+    if (_user != null) {
+      await checkUserTransactions();
+    }
+    _isLoading = false;
     notifyListeners();
 
-    try {
-      // O Supabase SDK gerencia a sessão automaticamente (salvando localmente).
-      // Não precisamos do FlutterSecureStorage manualmente.
-      _user = _supabase.auth.currentUser;
-
-      // Escuta mudanças de estado de auth e intercepta logins / logouts
-      _authSubscription = _supabase.auth.onAuthStateChange.listen((event) {
-        _user = event.session?.user;
-        notifyListeners();
-      });
-      
-      // Delay artificial para a Splash Screen aparecer
-      await Future.delayed(const Duration(milliseconds: 3500));
-    } catch (e) {
-      _errorMessage = 'Erro ao inicializar autenticação: $e';
-    } finally {
-      _isLoading = false;
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+      _user = data.session?.user; // <-- Correção aqui
+      if (_user != null) {
+        await checkUserTransactions();
+      }
       notifyListeners();
-    }
+    });
   }
 
+  Future<void> checkUserTransactions() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('transactions')
+          .select('id')
+          .limit(1);
+      _hasTransactions = data.isNotEmpty;
+    } catch (e) {
+      _hasTransactions = true;
+    }
+    notifyListeners();
+  }
+
+  // <-- FUNÇÃO DE LOGIN RESTABELECIDA PARA O LOGIN_SCREEN
   Future<void> signInWithGoogle() async {
     try {
-      await _supabase.auth.signInWithOAuth(
+      _errorMessage = null;
+      notifyListeners();
+      
+      await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-        // No Flutter Web, o redirectTo nulo faz com que redirecione para a mesma página atual.
-        // No mobile, usamos o deeplink customizado.
-        redirectTo: kIsWeb ? null : authCallbackUrl,
-        scopes: 'email profile',
+        redirectTo: kIsWeb ? null : 'io.supabase.finaiapp://login-callback',
       );
     } catch (e) {
-      rethrow;
+      _errorMessage = "Erro ao fazer login com o Google: $e";
+      notifyListeners();
     }
   }
 
   Future<void> signOut() async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      await _supabase.auth.signOut();
-      _user = null;
-    } catch (e) {
-      _errorMessage = 'Erro ao fazer logout: $e';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> refreshSession() async {
-    try {
-      final session = _supabase.auth.currentSession;
-      if (session != null) {
-        await _supabase.auth.refreshSession();
-      }
-    } catch (e) {
-      _errorMessage = 'Erro ao renovar sessão: $e';
-      notifyListeners();
-    }
-  }
-
-  void clearError() {
-    _errorMessage = null;
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _authSubscription?.cancel();
-    super.dispose();
+    await Supabase.instance.client.auth.signOut();
   }
 }
