@@ -64,7 +64,7 @@ api_python/
 
 ### Frontend
 ```
-app_flutter/finapi_app/
+app_flutter/
 ├── providers/
 │   └── auth_provider.dart       # Provider de estado de autenticação
 ├── screens/
@@ -102,7 +102,7 @@ cd api_python
 pip install -r requirements.txt
 
 # Frontend
-cd app_flutter/finapi_app
+cd app_flutter
 flutter pub get
 ```
 
@@ -118,7 +118,7 @@ cd api_python
 python main.py
 
 # Frontend
-cd app_flutter/finapi_app
+cd app_flutter
 flutter run --web-port 8080
 ```
 

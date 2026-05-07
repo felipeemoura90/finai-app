@@ -44,7 +44,7 @@ python main.py
 
 ### Frontend (Flutter Web)
 ```bash
-cd app_flutter/finapi_app
+cd app_flutter
 flutter run -d web-server --web-port=8080
 ```
 

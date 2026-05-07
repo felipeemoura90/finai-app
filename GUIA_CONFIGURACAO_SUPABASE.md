@@ -72,7 +72,7 @@ $env:PYTHONPATH="."; python -m uvicorn main:app --host 0.0.0.0 --port 8000 --rel
 
 ### Passo 1: Atualizar Supabase Config
 
-Edite: `app_flutter/finapi_app/lib/core/config/supabase_config.dart`
+Edite: `app_flutter/lib/core/config/supabase_config.dart`
 
 ```dart
 // Configurações do Supabase
@@ -88,7 +88,7 @@ const bool isProduction = bool.fromEnvironment('dart.vm.product');
 
 ### Passo 2: Executar Flutter (Web)
 ```bash
-cd app_flutter/finapi_app
+cd app_flutter
 flutter run --web-port 3000
 ```
 
@@ -195,7 +195,7 @@ Felipe_app/
 │       ├── auth_api.py           # Endpoints de auth
 │       └── ...
 │
-└── app_flutter/finapi_app/
+└── app_flutter/
     ├── pubspec.yaml
     ├── lib/
     │   ├── main.dart
