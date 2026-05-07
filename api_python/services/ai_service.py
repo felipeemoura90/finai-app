@@ -61,8 +61,8 @@ Transacao: "{texto_bruto}"
 Retorne APENAS um JSON valido no formato:
 {{
     "name": "Nome limpo da transacao (max 25 chars)",
-    "categoria": "Uma das categorias: Mercado, Alimentacao, Contas Fixas, Saude, Transporte, Educacao, Transferencia, Servicos, Outros",
-    "icon": "Icone do Material Design: shopping_cart, restaurant, bolt, wifi, local_pharmacy, local_gas_station, school, compare_arrows, help_outline, payment, local_cafe"
+    "categoria": "Uma das categorias: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferência, Serviços, Outros",
+    "icon": "Icone do Material Design: shopping_cart, restaurant, home, electrical_services, subscriptions, local_pharmacy, local_gas_station, school, beach_access, compare_arrows, build, help_outline"
 }}"""
 
         # Tenta Groq primeiro
@@ -198,9 +198,9 @@ Seja amigavel e direto ao ponto."""
         
         1. "data": A data da transação no formato YYYY-MM-DD.
         2. "valor": O valor numérico da transação (use negativo para saídas e positivo para entradas).
-        3. "descricao_original": O texto exato e feio que veio no extrato (ex: "PGTO*EMP 12345 BR").
-        4. "nome_limpo": Tente deduzir o nome fantasia real da loja ou serviço. Remova códigos, datas, e deixe com a primeira letra maiúscula.
-        5. "categoria_sugerida": Sugira a categoria mais lógica. Escolha APENAS entre: Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Transferências, Serviços, ou Outros.
+        3. "descricao_original": O texto exato e feio que veio no extrato.
+        4. "nome_limpo": Nome fantasia real da loja ou serviço.
+        5. "categoria_sugerida": Escolha APENAS entre: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferências, Serviços, ou Outros.
         
         TEXTO BRUTO DO EXTRATO:
         {texto_cortado}
