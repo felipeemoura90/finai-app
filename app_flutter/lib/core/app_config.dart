@@ -16,15 +16,14 @@ class AppColors {
   static const Color slate800 = Color(0xFF1E293B);
 }
 
-const String supabaseUrl = String.fromEnvironment(
-  'SUPABASE_URL',
-  defaultValue: 'https://fabengyjoxfwwszndohj.supabase.co',
-);
-
-const String supabaseAnonKey = String.fromEnvironment(
-  'SUPABASE_ANON_KEY',
-  defaultValue: 'sb_publishable_6r26DXJQqRit7K6sYcSXlA_jP9oxWvY',
-);
+// ⚠️  NUNCA adicione valores reais aqui. Passe via --dart-define na build.
+// Exemplo de uso:
+//   flutter run -d web-server --web-port 3000 \
+//     --dart-define=SUPABASE_URL=https://seu-projeto.supabase.co \
+//     --dart-define=SUPABASE_ANON_KEY=sua_anon_key
+// Ou em produção: --dart-define-from-file=.env.dart
+const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 const String authCallbackUrl = 'finapi://auth/callback';
 

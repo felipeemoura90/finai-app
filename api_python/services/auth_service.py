@@ -1,10 +1,7 @@
-import os
-import secrets
 import hashlib
 import base64
+import secrets
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
 from supabase_auth import SyncGoTrueClient
 from config import settings
 
@@ -12,13 +9,11 @@ class AuthService:
     def __init__(self):
         self.supabase_url = settings.SUPABASE_URL
         self.supabase_key = settings.SUPABASE_ANON_KEY
-        self.jwt_secret = settings.JWT_SECRET or secrets.token_hex(32)
-        self.jwt_algorithm = "HS256"
 
         if not self.supabase_url or not self.supabase_key:
             raise ValueError("SUPABASE_URL e SUPABASE_ANON_KEY são obrigatórios")
 
-        # Usar apenas o cliente de autenticação
+        # Cliente de autenticação do Supabase GoTrue
         self.auth_client = SyncGoTrueClient(
             url=f"{self.supabase_url}/auth/v1",
             headers={"apikey": self.supabase_key}
@@ -36,24 +31,6 @@ class AuthService:
             'code_challenge': code_challenge
         }
 
-    def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None):
-        """Cria token JWT de acesso"""
-        to_encode = data.copy()
-        if expires_delta:
-            expire = datetime.utcnow() + expires_delta
-        else:
-            expire = datetime.utcnow() + timedelta(minutes=15)
-        to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, self.jwt_secret, algorithm=self.jwt_algorithm)
-        return encoded_jwt
-
-    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """Verifica e decodifica token JWT"""
-        try:
-            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
-            return payload
-        except JWTError:
-            return None
 
     def get_auth_url(self, redirect_uri: str) -> Dict[str, str]:
         """Gera URL de autenticação com PKCE"""

@@ -1,36 +1,42 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import httpx
+import jwt
+from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 from config import settings
 
 security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """
+    Valida o JWT do Supabase de forma local (offline), sem chamadas HTTP externas.
+    Usa a SUPABASE_JWT_SECRET para verificar a assinatura criptograficamente.
+    Isso elimina a latência de uma chamada de rede por request.
+    """
     token = credentials.credentials
-    
-    # Valida o token chamando a API do Supabase diretamente (sem set_session)
+
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{settings.SUPABASE_URL}/auth/v1/user",
-                headers={
-                    "apikey": settings.SUPABASE_ANON_KEY,
-                    "Authorization": f"Bearer {token}",
-                },
-                timeout=10.0,
-            )
-        
-        if response.status_code != 200:
-            raise HTTPException(status_code=401, detail='Token inválido ou expirado')
-        
-        user_data = response.json()
+        payload = jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            # O Supabase usa "authenticated" como audience em tokens de usuário
+            options={"verify_aud": False},
+        )
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Token inválido: campo 'sub' ausente")
+
         return {
-            'id': user_data.get('id'),
-            'email': user_data.get('email'),
-            'user_metadata': user_data.get('user_metadata', {}),
-            'token': token
+            "id": user_id,
+            "email": payload.get("email", ""),
+            "user_metadata": payload.get("user_metadata", {}),
+            "token": token,
         }
-    except HTTPException:
-        raise
+
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado. Faça login novamente.")
+    except InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Token inválido: {str(e)}")
     except Exception:
-        raise HTTPException(status_code=401, detail='Falha ao validar token')
+        raise HTTPException(status_code=401, detail="Falha ao validar token")
