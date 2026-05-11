@@ -1,75 +1,75 @@
-FinAI - Assistente Financeiro Inteligente
-O FinAI é uma plataforma moderna de gestão financeira que combina o poder da Inteligência Artificial com uma interface intuitiva e responsiva. O sistema permite que usuários importem extratos bancários (OFX), categorizem transações automaticamente via IA e recebam insights financeiros personalizados em tempo real.
+# FinAI - Inteligência Artificial Financeira
 
-🚀 Tecnologias Utilizadas
-Frontend (Mobile & Web)
-Flutter: Framework para desenvolvimento multiplataforma.
+## 🚀 Funcionalidades
 
-Provider: Gerenciamento de estado centralizado e eficiente.
+- **Categorização automática**: IA categoriza transações desconhecidas
+- **Insights personalizados**: Análises inteligentes dos seus gastos
+- **Dashboard completo**: Ganhos, gastos e saldo real
+- **Feed inteligente**: Transações categorizadas automaticamente
 
-Dio: Cliente HTTP avançado com suporte a interceptores para autenticação automática.
+## 🤖 Configuração da IA (Gemini)
 
-File Selector: Integração nativa para seleção de arquivos em ambiente Web.
+### 1. Obter Chave da API
 
-Fl Chart: Renderização de gráficos financeiros dinâmicos.
+1. Acesse [Google AI Studio](https://aistudio.google.com/)
+2. Faça login com sua conta Google
+3. Vá em "Get API key" no menu lateral
+4. Crie uma nova chave ou use uma existente
 
-Backend (API)
-FastAPI (Python): Framework de alta performance para a construção da API.
+### 2. Configurar no Projeto
 
-Supabase (PostgreSQL): Banco de dados relacional com políticas de segurança RLS (Row Level Security).
+1. Copie o arquivo `.env.example` para `.env`:
+   ```bash
+   cp .env.example .env
+   ```
 
-Celery & Redis: Processamento assíncrono em background para tarefas pesadas, como o parsing de arquivos OFX.
+2. Edite o arquivo `.env` e adicione sua chave:
+   ```
+   GEMINI_API_KEY=sua_chave_aqui
+   ```
 
-Groq (Llama 3.3) & Google Gemini: Motores de IA integrados para categorização de gastos e chat interativo.
+### 3. Instalar Dependências
 
-✨ Funcionalidades Principais
-1. Gestão Inteligente com IA
-Categorização Automática: A IA analisa as descrições dos extratos e atribui categorias, ícones e nomes amigáveis às transações.
+```bash
+pip install -r requirements.txt
+```
 
-FinChat: Assistente virtual integrado para tirar dúvidas sobre suas finanças, utilizando modelos de linguagem avançados (fallback automático entre Llama 3.3 e Gemini).
+## 🏃‍♂️ Como Executar
 
-Insights Preditivos: Projeções de gastos mensais baseadas no seu histórico de consumo.
+### Backend (Python)
+```bash
+cd api_python
+python main.py
+```
 
-2. Interface Responsiva e Adaptável
-Design Inteligente: O app detecta o dispositivo e adapta a navegação:
+### Frontend (Flutter Web)
+```bash
+cd app_flutter
+flutter run -d web-server --web-port=8080
+```
 
-Desktop/Web: Sidebar fixa para navegação otimizada em telas largas.
+Acesse: http://localhost:8080
 
-Mobile: Navegação via Bottom Bar e menus de ação via Bottom Sheet para fácil uso com uma mão.
+## 📊 Funcionalidades da IA
 
-Integração Google: Login simplificado com exibição dinâmica de nome, e-mail e foto de perfil do usuário.
+### Categorização Automática
+- Transações desconhecidas são automaticamente categorizadas
+- Regras são salvas no banco para aprendizado contínuo
+- Badge "IA" indica transações categorizadas pela inteligência artificial
 
-3. Performance e Segurança
-Sistema de Cache Inteligente: Implementação de decoradores customizados no backend para acelerar o carregamento de Dashboards e Feeds.
+### Insights Personalizados
+- Análise mensal dos seus dados financeiros
+- Dicas específicas baseadas nos seus padrões de gasto
+- Sugestões práticas para o próximo mês
 
-Processamento em Background: Importação de arquivos OFX realizada de forma assíncrona, permitindo que o usuário continue navegando enquanto os dados são processados.
+## 🔧 Tecnologias
 
-Segurança RLS: Proteção de dados a nível de banco de dados, garantindo que cada usuário acesse exclusivamente suas próprias informações.
+- **Backend**: Python + FastAPI
+- **IA**: Google Gemini 1.5 Flash
+- **Frontend**: Flutter Web
+- **Banco**: SQLite (regras de categorização)
+- **Dados**: Arquivo OFX de extratos bancários
 
-🛠️ Melhorias de Arquitetura Implementadas
-Recentemente, o projeto passou por uma refatoração profunda para garantir escalabilidade:
+## 📝 Exemplo de Insight IA
 
-Separação de Responsabilidades (SoC): Lógicas de negócio foram movidas de componentes visuais para serviços dedicados (ai_service.py, AuthProvider, etc.).
-
-Networking Profissional: Implementação de interceptores no Flutter que anexam tokens de autenticação automaticamente em todas as chamadas de API.
-
-Tratamento de Erros Resiliente: Sistema de fallback para imagens de perfil (tratando erros 429 e CORS) e tratamento de exceções em fluxos de upload.
-
-Código DRY (Don't Repeat Yourself): Centralização da lógica de cache e de comunicação com IA para facilitar futuras manutenções.
-
-⚙️ Como Configurar
-Backend:
-
-Configure as chaves no arquivo .env (Supabase, Groq, Gemini).
-
-Inicie o Worker do Celery para processamento de arquivos.
-
-Rode a API com uvicorn main:app.
-
-Frontend:
-
-Configure a URL da API no arquivo app_config.dart.
-
-Certifique-se de que o Supabase está configurado para permitir a URL de redirecionamento do seu ambiente Web/Mobile.
-
-Execute flutter run -d web-server --web-port 3000.
+"Felipe, seus gastos com Mercado subiram 15% este mês. Recomendo planejar melhor as compras semanais para economizar R$ 200 na próxima quinzena."
