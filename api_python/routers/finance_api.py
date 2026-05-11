@@ -10,6 +10,7 @@ from services.clearing_service import ClearingService
 from config import settings
 from services.cache_service import CacheService
 from celery_worker import processar_extrato_task
+from services.pluggy_service import PluggyService
 
 class NovaRegra(BaseModel):
     keyword: str
@@ -19,6 +20,9 @@ class NovaRegra(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+
+class SyncRequest(BaseModel):
+    item_id: str
 
 router = APIRouter(
     prefix="/api", 
@@ -31,6 +35,7 @@ supabase_db = SupabaseService()
 ai_brain = AIService()
 cleaner = ClearingService()
 cache_engine = CacheService()
+pluggy_service = PluggyService()
 
 # ==========================================
 # DECORADOR MÁGICO DE CACHE
@@ -207,3 +212,23 @@ def get_settings_params():
             }
         }
     }
+@router.post("/pluggy/sync")
+async def sync_pluggy_account(
+    request: SyncRequest, 
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    user_id = current_user.get("id")
+    access_token = current_user.get("token") # Necessário para o RLS do Supabase
+    
+    try:
+        # Envia o processo demorado para o fundo
+        background_tasks.add_task(
+            pluggy_service.fetch_and_sync_transactions,
+            request.item_id,
+            user_id,
+            access_token
+        )
+        return {"status": "processing", "message": "Sincronização iniciada em segundo plano."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
