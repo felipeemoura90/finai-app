@@ -3,7 +3,24 @@ import json
 import re
 import google.generativeai as genai
 from typing import Dict, List, Optional
+from pydantic import BaseModel, Field
 from config import settings
+
+class CategoriaTransacao(BaseModel):
+    name: str = Field(description="Nome limpo da transacao (max 25 chars)")
+    categoria: str = Field(description="Uma das categorias: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferência, Serviços, Outros")
+    icon: str = Field(description="Icone do Material Design: shopping_cart, restaurant, home, electrical_services, subscriptions, local_pharmacy, local_gas_station, school, beach_access, compare_arrows, build, help_outline")
+
+class TransacaoExtraida(BaseModel):
+    data: str = Field(description="Data da transação no formato YYYY-MM-DD")
+    valor: float = Field(description="Valor numérico da transação (use negativo para saídas e positivo para entradas)")
+    descricao_original: str = Field(description="O texto exato e feio que veio no extrato")
+    nome_limpo: str = Field(description="Nome fantasia real da loja ou serviço")
+    categoria_sugerida: str = Field(description="Escolha APENAS entre: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferências, Serviços, ou Outros")
+    fitid: str = Field(description="O código único da transação que está na tag <FITID> correspondente")
+
+class ListaTransacoes(BaseModel):
+    transacoes: List[TransacaoExtraida]
 
 class AIService:
     def __init__(self, api_key: Optional[str] = None):
@@ -21,27 +38,7 @@ class AIService:
         self.enabled = True
         print("[OK] IA Gemini conectada com sucesso!")
 
-    def _limpar_resposta_json(self, texto_resposta: str):
-        """Remove blocos de markdown e parseia o JSON da resposta da IA com segurança usando Regex"""
-        if not texto_resposta:
-            raise ValueError("A resposta da IA está vazia.")
 
-        texto_limpo = texto_resposta.strip()
-        
-        # Expressão regular para capturar tudo entre o primeiro '{' ou '[' e o último '}' ou ']'
-        match = re.search(r'(\{.*\}|\[.*\])', texto_limpo, re.DOTALL)
-        if match:
-            texto_limpo = match.group(1)
-        else:
-            # Fallback manual de limpeza
-            texto_limpo = texto_limpo.replace('```json', '').replace('```', '').strip()
-        
-        try:
-            return json.loads(texto_limpo)
-        except json.JSONDecodeError as e:
-            print(f"[ERRO IA] Falha ao decodificar JSON: {e}")
-            print(f"[TEXTO QUE A IA ENVIOU] {texto_limpo}")
-            raise e
 
     def categorizar_transacao(self, texto_bruto: str) -> Dict[str, str]:
         """
@@ -57,13 +54,7 @@ class AIService:
         prompt = f"""Analise esta transacao bancaria e categorize-a.
 
 Transacao: "{texto_bruto}"
-
-Retorne APENAS um JSON valido no formato:
-{{
-    "name": "Nome limpo da transacao (max 25 chars)",
-    "categoria": "Uma das categorias: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferência, Serviços, Outros",
-    "icon": "Icone do Material Design: shopping_cart, restaurant, home, electrical_services, subscriptions, local_pharmacy, local_gas_station, school, beach_access, compare_arrows, build, help_outline"
-}}"""
+"""
 
         # Tenta Groq primeiro
         groq_key = settings.GROQ_API_KEY
@@ -74,16 +65,24 @@ Retorne APENAS um JSON valido no formato:
                 response = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": "Voce categoriza transacoes financeiras. Responda APENAS com JSON valido. Suas chaves devem ser obrigatoriamente: name, categoria e icon."},
+                        {"role": "system", "content": "Voce categoriza transacoes financeiras."},
                         {"role": "user", "content": prompt},
                     ],
+                    tools=[{
+                        "type": "function",
+                        "function": {
+                            "name": "categorizar",
+                            "description": "Categoriza a transacao financeira",
+                            "parameters": CategoriaTransacao.model_json_schema()
+                        }
+                    }],
+                    tool_choice={"type": "function", "function": {"name": "categorizar"}},
                     temperature=0.1,
                     max_tokens=150,
-                    response_format={"type": "json_object"} # Força o Groq a devolver um JSON
                 )
                 
-                texto_resposta = response.choices[0].message.content
-                result = self._limpar_resposta_json(texto_resposta)
+                tool_call = response.choices[0].message.tool_calls[0]
+                result = json.loads(tool_call.function.arguments)
                 
                 result["name"] = result.get("name", fallback["name"])[:25]
                 result["categoria"] = result.get("categoria", fallback["categoria"])
@@ -95,8 +94,14 @@ Retorne APENAS um JSON valido no formato:
         # Fallback: Gemini
         if self.enabled:
             try:
-                response = self.model.generate_content(prompt)
-                result = self._limpar_resposta_json(response.text)
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        response_schema=CategoriaTransacao,
+                    )
+                )
+                result = json.loads(response.text)
                 
                 result["name"] = result.get("name", fallback["name"])[:25]
                 result["categoria"] = result.get("categoria", fallback["categoria"])
@@ -193,16 +198,6 @@ Seja amigavel e direto ao ponto."""
         Você é um analista financeiro especialista em limpar e organizar extratos bancários brasileiros.
         Leia o texto bruto do extrato abaixo e extraia todas as transações financeiras.
         
-        Você DEVE retornar APENAS um array JSON válido, sem formatação markdown ou textos adicionais.
-        Cada objeto do array deve conter estritamente as seguintes chaves:
-        
-        1. "data": A data da transação no formato YYYY-MM-DD.
-        2. "valor": O valor numérico da transação (use negativo para saídas e positivo para entradas).
-        3. "descricao_original": O texto exato e feio que veio no extrato.
-        4. "nome_limpo": Nome fantasia real da loja ou serviço.
-        5. "categoria_sugerida": Escolha APENAS entre: Mercado, Alimentação, Moradia, Utilidades (Água/Luz/Tel), Assinaturas, Saúde, Transporte, Educação, Lazer, Transferências, Serviços, ou Outros.
-        6. "fitid": O código único da transação que está na tag <FITID> correspondente.
-        
         TEXTO BRUTO DO EXTRATO:
         {texto_cortado}
         """
@@ -217,15 +212,25 @@ Seja amigavel e direto ao ponto."""
                 response = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": "Voce e um assistente financeiro que extrai transacoes. Responda APENAS com JSON valido, sem markdown. O JSON deve ser um array no root."},
+                        {"role": "system", "content": "Voce e um assistente financeiro que extrai transacoes."},
                         {"role": "user", "content": prompt},
                     ],
+                    tools=[{
+                        "type": "function",
+                        "function": {
+                            "name": "extrair",
+                            "description": "Extrai transacoes financeiras do extrato",
+                            "parameters": ListaTransacoes.model_json_schema()
+                        }
+                    }],
+                    tool_choice={"type": "function", "function": {"name": "extrair"}},
                     temperature=0.1,
                     max_tokens=4000,
                 )
                 
-                texto_resposta = response.choices[0].message.content
-                transacoes = self._limpar_resposta_json(texto_resposta)
+                tool_call = response.choices[0].message.tool_calls[0]
+                parsed = json.loads(tool_call.function.arguments)
+                transacoes = parsed.get("transacoes", [])
                 
                 print(f"[OK] Groq extraiu {len(transacoes)} transacoes com sucesso!")
                 return transacoes
@@ -236,8 +241,15 @@ Seja amigavel e direto ao ponto."""
         if self.enabled:
             try:
                 print("[INFO] Usando Gemini como fallback para ler o extrato...")
-                response = self.model.generate_content(prompt)
-                transacoes = self._limpar_resposta_json(response.text)
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        response_schema=ListaTransacoes,
+                    )
+                )
+                parsed = json.loads(response.text)
+                transacoes = parsed.get("transacoes", [])
                 print(f"[OK] Gemini extraiu {len(transacoes)} transacoes com sucesso!")
                 return transacoes
             except Exception as e:
