@@ -212,7 +212,18 @@ def get_settings_params():
             }
         }
     }
+
+@router.get("/pluggy/connect-token")
+def get_pluggy_connect_token(current_user: dict = Depends(get_current_user)):
+    """Gera um token de curta duração para abrir o Pluggy Connect Widget no app."""
+    try:
+        token = pluggy_service.get_connect_token()
+        return {"status": "success", "connect_token": token}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/pluggy/sync")
+
 async def sync_pluggy_account(
     request: SyncRequest, 
     background_tasks: BackgroundTasks,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/app_config.dart';
+import 'open_finance_screen.dart';
 
 class Tela4Settings extends StatefulWidget {
   const Tela4Settings({super.key});
@@ -37,7 +38,82 @@ class _Tela4SettingsState extends State<Tela4Settings> {
                   'Defina os limites (set-points) para a malha de controle do seu orçamento.',
                   style: TextStyle(color: AppColors.textMuted),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
+
+                // Open Finance Card
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const OpenFinanceScreen(),
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.indigoColor.withOpacity(0.2),
+                          AppColors.emeraldColor.withOpacity(0.08),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: AppColors.indigoColor.withOpacity(0.35),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.indigoColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.account_balance,
+                            color: AppColors.indigoColor,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Open Finance',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Conecte seu banco e importe transações automaticamente',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios,
+                          color: AppColors.textMuted,
+                          size: 16,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
                 Container(
                   padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
                   decoration: BoxDecoration(

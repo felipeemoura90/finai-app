@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:app_links/app_links.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
@@ -61,39 +63,76 @@ class AuthGuard extends StatefulWidget {
 }
 
 class _AuthGuardState extends State<AuthGuard> {
-  bool _checkingOnboarding = false;
-  bool _needsOnboarding = false;
   bool _onboardingSkipped = false;
-  bool _onboardingChecked = false;
+  StreamSubscription<Uri>? _sub;
+  final _appLinks = AppLinks();
 
-  Future<void> _checkIfNeedsOnboarding() async {
-    if (_onboardingChecked || _onboardingSkipped) return;
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
 
-    setState(() => _checkingOnboarding = true);
-
-    try {
-      // Verifica diretamente no Supabase se o usuário possui QUALQUER transação salva.
-      // O .limit(1) faz a consulta ser instantânea, pois só queremos saber se existe "pelo menos uma".
-      final data = await Supabase.instance.client
-          .from('transactions')
-          .select('id')
-          .limit(1);
-
-      setState(() {
-        // Se a lista 'data' vier vazia, ele precisa do onboarding.
-        // Se tiver 1 item, a lista não é vazia, então _needsOnboarding = false e ele vai direto pro App!
-        _needsOnboarding = data.isEmpty;
-        _onboardingChecked = true;
-        _checkingOnboarding = false;
-      });
-    } catch (e) {
-      // Se der erro de conexão (ex: sem internet), pula o onboarding e tenta abrir o cache
-      setState(() {
-        _needsOnboarding = false;
-        _onboardingChecked = true;
-        _checkingOnboarding = false;
-      });
+  Future<void> _processUri(Uri uri) async {
+    if (!mounted) return;
+    final code = uri.queryParameters['code'];
+    if (code != null && code.isNotEmpty) {
+      try {
+        await Supabase.instance.client.auth.exchangeCodeForSession(code);
+        // Sucesso: onAuthStateChange no AuthProvider vai lidar com o redirecionamento
+      } catch (e) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Erro ao finalizar login'),
+              content: Text('Não foi possível trocar o código pela sessão.\n\nErro: $e'),
+              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+            ),
+          );
+        }
+      }
+    } else {
+      // URI chegou mas sem 'code' - mostrar o que chegou
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('URI sem código'),
+            content: Text(uri.toString()),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+          ),
+        );
+      }
     }
+  }
+
+  void _initDeepLinks() async {
+    // 1. Captura o link que ABRIU o app (cold start ou singleTask restart)
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        debugPrint('[DeepLink] Initial link: $initialUri');
+        await _processUri(initialUri);
+      }
+    } catch (e) {
+      debugPrint('[DeepLink] Erro ao obter initial link: $e');
+    }
+
+    // 2. Escuta links enquanto o app está em background
+    _sub = _appLinks.uriLinkStream.listen(
+      (uri) {
+        debugPrint('[DeepLink] Stream link: $uri');
+        _processUri(uri);
+      },
+      onError: (e) => debugPrint('[DeepLink] Stream error: $e'),
+    );
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -103,19 +142,18 @@ class _AuthGuardState extends State<AuthGuard> {
         if (authProvider.isLoading) {
           return const FinAiSplashScreen();
         }
-  
+
         if (!authProvider.isAuthenticated) {
           return const LoginScreen();
         }
-  
-        // Lógica de Onboarding simplificada usando o estado do Provider
+
         if (!authProvider.hasTransactions && !_onboardingSkipped) {
           return OnboardingScreen(
             onSkip: () => setState(() => _onboardingSkipped = true),
             onComplete: () => authProvider.checkUserTransactions(),
           );
         }
-  
+
         return widget.child; // MainLayout
       },
     );

@@ -31,7 +31,8 @@ dependencies:
   flutter:
     sdk: flutter
   dio: ^5.7.0
-  pluggy_flutter: ^1.0.0 # verifique a versão mais recente
+  flutter_pluggy_connect: ^3.0.1 # verifique a versão mais recente
+  webview_flutter: ^4.0.0 # a Pluggy usa webview por baixo dos panos
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -48,6 +49,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  flutter_launcher_icons: ^0.13.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -99,3 +102,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/google_logo.png" # Usando temporariamente a logo disponível, o usuário pode alterar depois
+  min_sdk_android: 21

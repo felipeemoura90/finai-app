@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../core/app_config.dart';
-import '../services/api_service.dart'; // <-- NOVO
+import '../services/api_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_pluggy_connect/flutter_pluggy_connect.dart';
 
 class Tela1Dashboard extends StatefulWidget {
   final String mesReferencia;
@@ -20,6 +21,9 @@ class Tela1Dashboard extends StatefulWidget {
 class _Tela1DashboardState extends State<Tela1Dashboard> {
   final ApiService _apiService = ApiService(); // Instância do serviço
   late Future<Map<String, dynamic>> _dashboardFuture;
+
+  // --- NOVO: Variável de controle do botão da Pluggy ---
+  bool _isConnectingBank = false;
 
   @override
   void initState() {
@@ -49,6 +53,73 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
         token,
       );
     });
+  }
+
+  // --- NOVO: Função que chama a API e abre a tela nativa da Pluggy ---
+  Future<void> _conectarBanco() async {
+    setState(() => _isConnectingBank = true);
+
+    try {
+      // 1. Pede o passe (token) para a sua API em Python
+      final token = await _apiService.getPluggyConnectToken();
+
+      if (token == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Erro ao iniciar conexão com banco. Verifique sua API.',
+              ),
+            ),
+          );
+        }
+        setState(() => _isConnectingBank = false);
+        return;
+      }
+
+      // 2. Cria a tela nativa da Pluggy
+      final pluggyConnect = PluggyConnect(
+        connectToken: token,
+        includeSandbox: true, // Em produção, mude para false
+        onSuccess: (successData) async {
+          // O usuário logou! Pegamos o ID da conexão
+          final item = successData['item'];
+          final itemId = item['id'];
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Banco conectado! Sincronizando dados no servidor...',
+                ),
+              ),
+            );
+          }
+
+          // 3. Manda o item_id para o Python processar e salvar
+          await _apiService.syncPluggyAccount(itemId);
+
+          setState(() => _isConnectingBank = false);
+        },
+        onError: (errorData) {
+          print('Erro no fluxo da Pluggy: $errorData');
+          setState(() => _isConnectingBank = false);
+        },
+        onClose: () {
+          setState(() => _isConnectingBank = false);
+        },
+      );
+
+      // 4. Exibe o widget na tela
+      if (mounted) {
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (context) => pluggyConnect));
+      }
+    } catch (e) {
+      print('Erro inesperado: $e');
+      setState(() => _isConnectingBank = false);
+    }
   }
 
   double _safeDouble(dynamic value) {
@@ -134,6 +205,48 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
                     wProj,
                   ),
                   const SizedBox(height: 24),
+
+                  // --- NOVO: Botão estilizado para Conectar o Banco ---
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isConnectingBank ? null : _conectarBanco,
+                      icon: _isConnectingBank
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.account_balance,
+                              color: Colors.white,
+                            ),
+                      label: Text(
+                        _isConnectingBank
+                            ? 'Iniciando Conexão...'
+                            : 'Conectar Banco Automaticamente',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors
+                            .emeraldColor, // Usando a cor de sucesso do seu app
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ----------------------------------------------------
                   _buildInsightCard(insight),
                   const SizedBox(height: 32),
                   const Text(
@@ -179,11 +292,12 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
   }
 
   Widget _buildCategoriesList(List categorias, double totalGastos) {
-    if (categorias.isEmpty)
+    if (categorias.isEmpty) {
       return const Text(
         'Sem gastos registrados.',
         style: TextStyle(color: AppColors.textMuted),
       );
+    }
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -333,7 +447,10 @@ class _Tela1DashboardState extends State<Tela1Dashboard> {
               alignment: Alignment.centerLeft,
               child: Text(
                 label,
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                ),
               ),
             ),
             const SizedBox(height: 12),

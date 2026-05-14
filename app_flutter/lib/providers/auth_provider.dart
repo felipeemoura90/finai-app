@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart'; // Para o kIsWeb
-
+import '../core/app_config.dart';
 class AuthProvider extends ChangeNotifier {
   User? _user;
   bool _isLoading = true;
@@ -31,7 +31,10 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
-      _user = data.session?.user; // <-- Correção aqui
+      final event = data.event;
+      final session = data.session;
+      _errorMessage = "Auth Event: $event | User: ${session?.user?.id}";
+      _user = session?.user;
       if (_user != null) {
         await checkUserTransactions();
       }
@@ -60,7 +63,7 @@ class AuthProvider extends ChangeNotifier {
       
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: kIsWeb ? null : 'io.supabase.finaiapp://login-callback',
+        redirectTo: kIsWeb ? null : authCallbackUrl,
       );
     } catch (e) {
       _errorMessage = "Erro ao fazer login com o Google: $e";

@@ -1,60 +1,103 @@
 import os
 import json
-from datetime import datetime
-from pluggy_sdk import ApiClient as PluggyClient
-from config import settings
+import requests
 from services.ai_service import AIService
 from services.supabase_service import SupabaseService
 
+PLUGGY_BASE_URL = "https://api.pluggy.ai"
+
 class PluggyService:
     def __init__(self):
-        client_id = os.getenv("PLUGGY_CLIENT_ID")
-        client_secret = os.getenv("PLUGGY_CLIENT_SECRET")
+        self.client_id = os.getenv("PLUGGY_CLIENT_ID")
+        self.client_secret = os.getenv("PLUGGY_CLIENT_SECRET")
         
-        if not client_id or not client_secret:
+        if not self.client_id or not self.client_secret:
             print("[AVISO] Chaves da Pluggy não configuradas no .env")
-            self.client = None
         else:
-            self.client = PluggyClient()
+            print("[OK] Pluggy configurada com credenciais.")
+
         self.ai_service = AIService()
         self.supabase = SupabaseService()
 
+    def _get_api_key(self) -> str:
+        """Etapa 1: Autentica com clientId/clientSecret e obtém um apiKey temporário."""
+        response = requests.post(
+            f"{PLUGGY_BASE_URL}/auth",
+            json={"clientId": self.client_id, "clientSecret": self.client_secret},
+            timeout=15,
+        )
+        if response.status_code != 200:
+            raise Exception(f"Falha na autenticação Pluggy: {response.text}")
+        api_key = response.json().get("apiKey")
+        if not api_key:
+            raise Exception("Pluggy não retornou apiKey.")
+        return api_key
+
     def get_connect_token(self) -> str:
-        if self.client is None:
-            raise Exception("PluggyClient not initialized - check .env keys")
+        """Etapa 2: Usa o apiKey para gerar um connectToken seguro para o widget."""
+        if not self.client_id or not self.client_secret:
+            raise Exception("Credenciais da Pluggy não configuradas no .env")
         try:
-            response = self.client.create_connect_token()
-            return response.get("accessToken")
+            api_key = self._get_api_key()
+            response = requests.post(
+                f"{PLUGGY_BASE_URL}/connect_token",
+                headers={"x-api-key": api_key},
+                json={},
+                timeout=15,
+            )
+            if response.status_code != 200:
+                raise Exception(f"Falha ao gerar connectToken: {response.text}")
+            token = response.json().get("accessToken")
+            if not token:
+                raise Exception("Pluggy não retornou accessToken no connect_token.")
+            print(f"[OK] Pluggy connectToken gerado com sucesso.")
+            return token
         except Exception as e:
             print(f"[ERRO] Falha ao gerar token da Pluggy: {e}")
-            raise Exception("Não foi possível iniciar a conexão com o banco.")
+            raise Exception(f"Não foi possível iniciar a conexão com o banco: {e}")
+
 
     async def fetch_and_sync_transactions(self, item_id: str, user_id: str, access_token: str) -> dict:
-        if self.client is None:
-            raise Exception("PluggyClient not initialized - check .env keys")
+        if not self.client_id or not self.client_secret:
+            raise Exception("Credenciais da Pluggy não configuradas no .env")
         try:
-            print(f"Iniciando sincronização para o item: {item_id}")
-            accounts = self.client.fetch_accounts(item_id).get("results", [])
-            
+            print(f"[Pluggy] Iniciando sincronização para o item: {item_id}")
+            api_key = self._get_api_key()
+            headers = {"x-api-key": api_key}
+
+            # 1. Busca as contas do item
+            accounts_resp = requests.get(
+                f"{PLUGGY_BASE_URL}/accounts",
+                headers=headers,
+                params={"itemId": item_id},
+                timeout=30,
+            )
+            accounts = accounts_resp.json().get("results", [])
+
             processed_transactions = []
 
             for account in accounts:
                 account_id = account.get("id")
-                # Busca transações (a Pluggy traz dados detalhados)
-                transactions = self.client.fetch_transactions(account_id).get("results", [])
-                
+                # 2. Busca transações de cada conta
+                tx_resp = requests.get(
+                    f"{PLUGGY_BASE_URL}/transactions",
+                    headers=headers,
+                    params={"accountId": account_id, "pageSize": 500},
+                    timeout=30,
+                )
+                transactions = tx_resp.json().get("results", [])
+
                 for tx in transactions:
-                    # 1. Extração dos dados básicos
                     desc_original = tx.get("description", "Transação desconhecida")
                     valor = tx.get("amount", 0.0)
-                    data_tx = tx.get("date") # Formato: YYYY-MM-DDTHH:MM:SSZ
+                    data_tx = tx.get("date")
                     pluggy_tx_id = tx.get("id")
-                    
-                    # 2. Categorização via IA (Gemini)
+
+                    # 3. Categorização via IA
                     categoria = "Outros"
                     icone = "help-circle"
                     desc_limpa = desc_original
-                    
+
                     try:
                         ai_result = await self.ai_service.categorize_transaction(desc_original, valor)
                         if ai_result:
@@ -64,7 +107,6 @@ class PluggyService:
                     except Exception as ai_e:
                         print(f"[AVISO] Falha ao categorizar '{desc_original}': {ai_e}")
 
-                    # 3. Mapeamento para o formato do Supabase
                     processed_transactions.append({
                         "user_id": user_id,
                         "data": data_tx,
@@ -72,20 +114,21 @@ class PluggyService:
                         "valor": valor,
                         "categoria": categoria,
                         "icon": icone,
-                        "fitid": pluggy_tx_id, # Chave única para o Upsert
-                        "raw_data": json.dumps(tx) # Guarda o dado original para auditoria
+                        "fitid": pluggy_tx_id,
+                        "raw_data": json.dumps(tx)
                     })
 
-            # 4. Envio em lote para o Supabase
+            # 4. Salva no Supabase
             if processed_transactions:
                 self.supabase.insert_transactions_for_user(access_token, processed_transactions)
-            
+
+            print(f"[OK] Sincronizadas {len(processed_transactions)} transações de {len(accounts)} contas.")
             return {
-                "status": "success", 
+                "status": "success",
                 "total_contas": len(accounts),
                 "total_transacoes_sincronizadas": len(processed_transactions)
             }
-            
+
         except Exception as e:
             print(f"[ERRO] Falha ao sincronizar dados da Pluggy: {e}")
-            raise Exception("Erro ao extrair e processar transações do banco.")
+            raise Exception(f"Erro ao extrair e processar transações do banco: {e}")
